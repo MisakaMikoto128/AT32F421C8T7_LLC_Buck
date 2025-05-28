@@ -1,2 +1,9 @@
 project/MDK_V5/objects/*
 !project/MDK_V5/objects/*.sct
+.cmsis/*
+.eide/*
+.vscode/*
+.clang-format
+.eide.usr.ctx.json
+build/*
+project/MDK_V5/JLinkLog.txt

@@ -113,7 +113,8 @@ int main(void)
   wk_tmr15_init();
 
   /* add user code begin 2 */
-
+  tmr_channel_enable(TMR1, TMR_SELECT_CHANNEL_2, TRUE);
+  tmr_counter_enable(TMR1, TRUE);
   /* add user code end 2 */
 
   while(1)

@@ -199,7 +199,7 @@ void wk_tmr15_init(void)
    */
 
   /* add user code begin tmr15_init 2 */
-
+  
   /* add user code end tmr15_init 2 */
 }
 

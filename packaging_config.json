@@ -1,0 +1,6 @@
+{
+    "include_folders": ["libraries", "middlewares", "project"],
+    "exclude_folders": [".git", "__pycache__"],
+    "exclude_files": [".gitignore"],
+    "exclude_extensions": [".pyc"]
+}
