@@ -34,7 +34,7 @@
 
 /* private includes ----------------------------------------------------------*/
 /* add user code begin private includes */
-
+#include <stdint.h>
 /* add user code end private includes */
 
 /* private typedef -----------------------------------------------------------*/
@@ -64,7 +64,11 @@
 
 /* private user code ---------------------------------------------------------*/
 /* add user code begin 0 */
-
+#define ADC_RANK_NUM 6 // ADC采样通道数
+volatile uint16_t adc_buffer[ADC_RANK_NUM] = {0}; // ADC采样数据缓冲区
+#define DMA1_CHANNEL1_MEMORY_BASE_ADDR ((uint32_t)adc_buffer) // DMA1通道1内存地址
+#define DMA1_CHANNEL1_BUFFER_SIZE (ADC_RANK_NUM) // DMA1通道1缓冲区大小,单位是传输个数
+float votlage_debug[ADC_RANK_NUM] = {0}; // 电压调试数据
 /* add user code end 0 */
 
 /**
@@ -113,6 +117,10 @@ int main(void)
   wk_tmr15_init();
 
   /* add user code begin 2 */
+  dma_interrupt_enable(DMA1_CHANNEL1, DMA_FDT_INT, TRUE);
+  dma_interrupt_enable(DMA1_CHANNEL1, DMA_HDT_INT, TRUE);
+  dma_interrupt_enable(DMA1_CHANNEL1, DMA_DTERR_INT, TRUE);
+
   tmr_channel_enable(TMR1, TMR_SELECT_CHANNEL_2, TRUE);
   tmr_counter_enable(TMR1, TRUE);
 
@@ -130,5 +138,54 @@ int main(void)
 }
 
   /* add user code begin 4 */
+#define ADC_VIN_RANK_IDX      0 // LLC输入电压,PA1
+#define ADC_IO_RANK_IDX       1 // Buck输出电流,PA2
+#define ADC_VO_TOTAL_RANK_IDX 2 // Buck输出电压,PA3
+#define ADC_VO_MID_RANK_IDX   3 // PA6
+#define ADC_IIN_RANK_IDX      4 // LLC输入电流,PA7
+#define ADC_V_LLC_RANK_IDX    5 // LLC输出电压,PB2
+
+// 预先计算的电压转换因子（Q15定点数）
+#define VREF (3.3f)  // 根据实际电压修改
+#define VOLTAGE_SCALE_FACTOR_Q15 (uint32_t)((VREF / 4096.0f) * 32768)  // Q15格式
+
+/**
+  * @brief  this function handles DMA1 Channel 1 handler.
+  * @param  none
+  * @retval none
+  */
+void DMA1_Channel1_IRQHandler(void)
+{
+  /* add user code begin DMA1_Channel1_IRQ 0 */
+  /* check if the DMA1 Channel 1 transfer complete interrupt flag is set */
+  if (dma_interrupt_flag_get(DMA1_FDT1_FLAG) != RESET) {
+      /* clear the DMA1 Channel 1 transfer complete interrupt flag */
+      for (int i = 0; i < ADC_RANK_NUM; i++) {
+          votlage_debug[i] = adc_buffer[i] * 3.3f / 4096.0f; // 将ADC值转换为电压值
+          // 定点数计算：adc_value * scale_factor >> 15
+          // votlage_debug[i] = (adc_buffer[i] * VOLTAGE_SCALE_FACTOR_Q15 + 0x4000) >> 15;
+      }
+      dma_flag_clear(DMA1_FDT1_FLAG);
+      /* add user code here to handle the transfer complete event */
+  }
+
+  /* check if the DMA1 Channel 1 half transfer interrupt flag is set */
+  if (dma_interrupt_flag_get(DMA1_HDT1_FLAG) != RESET) {
+      /* clear the DMA1 Channel 1 half transfer interrupt flag */
+      dma_flag_clear(DMA1_HDT1_FLAG);
+      /* add user code here to handle the half transfer event */
+  }
+
+  /* check if the DMA1 Channel 1 transfer error interrupt flag is set */
+  if (dma_interrupt_flag_get(DMA1_DTERR1_FLAG) != RESET) {
+      /* clear the DMA1 Channel 1 transfer error interrupt flag */
+      dma_flag_clear(DMA1_DTERR1_FLAG);
+      /* add user code here to handle the transfer error event */
+  }
+  /* add user code end DMA1_Channel1_IRQ 0 */
+  /* add user code begin DMA1_Channel1_IRQ 1 */
+
+  /* add user code end DMA1_Channel1_IRQ 1 */
+}
 
   /* add user code end 4 */

@@ -222,21 +222,6 @@ void SysTick_Handler(void)
 }
 
 /**
-  * @brief  this function handles DMA1 Channel 1 handler.
-  * @param  none
-  * @retval none
-  */
-void DMA1_Channel1_IRQHandler(void)
-{
-  /* add user code begin DMA1_Channel1_IRQ 0 */
-
-  /* add user code end DMA1_Channel1_IRQ 0 */
-  /* add user code begin DMA1_Channel1_IRQ 1 */
-
-  /* add user code end DMA1_Channel1_IRQ 1 */
-}
-
-/**
   * @brief  this function handles TMR1 channel handler.
   * @param  none
   * @retval none
