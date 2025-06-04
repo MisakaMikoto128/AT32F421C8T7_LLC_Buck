@@ -46,6 +46,8 @@
         </Mode>
         <Parameters>
             <ParametersSub name="Period" value="3000"/>
+            <ParametersSub name="OCMode_2" value="TMR_OUTPUT_CONTROL_PWM_MODE_A"/>
+            <ParametersSub name="ChannelData_2" value="1500"/>
         </Parameters>
     </TMR1>
     <TMR15>

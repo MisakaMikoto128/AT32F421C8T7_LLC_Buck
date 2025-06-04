@@ -115,6 +115,10 @@ int main(void)
   /* add user code begin 2 */
   tmr_channel_enable(TMR1, TMR_SELECT_CHANNEL_2, TRUE);
   tmr_counter_enable(TMR1, TRUE);
+
+  tmr_channel_enable(TMR15, TMR_SELECT_CHANNEL_2, TRUE);
+  tmr_channel_enable(TMR15, TMR_SELECT_CHANNEL_2C, TRUE);
+  tmr_counter_enable(TMR15, TRUE);
   /* add user code end 2 */
 
   while(1)
