@@ -29,11 +29,36 @@
             <ParametersSub name="SamplingTime_OrdinarySequence_6" value="ADC_SAMPLETIME_1_5"/>
         </Parameters>
     </ADC1>
+    <CRC>
+        <Mode>
+            <ModeSub name="CRC_State" value="TRUE"/>
+        </Mode>
+        <Parameters>
+            <ParametersSub name="CRCPolynomialLength" value="CRC_POLY_SIZE_16B"/>
+        </Parameters>
+    </CRC>
+    <CRM>
+        <Mode>
+            <ModeSub name="HEXT" value="HEXT-External-Oscillator"/>
+        </Mode>
+        <Parameters>
+            <ParametersSub name="HEXT" value="HEXT_CRYSTAL"/>
+        </Parameters>
+    </CRM>
     <DEBUG>
         <Mode>
             <ModeSub name="SWD" value="TRUE"/>
         </Mode>
     </DEBUG>
+    <PWC>
+        <Mode>
+            <ModeSub name="VoltageMonitoring" value="TRUE"/>
+        </Mode>
+        <Parameters>
+            <ParametersSub name="BoundarySelect" value="PWC_PVM_VOLTAGE_2V4"/>
+            <ParametersSub name="TriggerPolarity" value="EXINT_TRIGGER_BOTH_EDGE"/>
+        </Parameters>
+    </PWC>
     <SYSTEM>
         <Mode>
             <ModeSub name="Time_Base" value="SysTick"/>
@@ -58,9 +83,9 @@
             <ModeSub name="Activated" value="TRUE"/>
         </Mode>
         <Parameters>
-            <ParametersSub name="Period" value="5999"/>
+            <ParametersSub name="Period" value="1199"/>
             <ParametersSub name="OCMode_2" value="TMR_OUTPUT_CONTROL_PWM_MODE_A"/>
-            <ParametersSub name="ChannelData_2" value="3000"/>
+            <ParametersSub name="ChannelData_2" value="600"/>
         </Parameters>
     </TMR15>
     <DMA>
@@ -71,6 +96,7 @@
     </DMA>
     <NVIC>
         <SysTick_Handler>1;15;0;0;0</SysTick_Handler>
+        <PVM_IRQHandler>1;0;0;0;0</PVM_IRQHandler>
         <FLASH_IRQHandler>0;0;0;0;0</FLASH_IRQHandler>
         <CRM_IRQHandler>0;0;0;0;0</CRM_IRQHandler>
         <DMA1_Channel1_IRQHandler>1;0;0;0;0</DMA1_Channel1_IRQHandler>
@@ -112,6 +138,8 @@
         <systicsel>8</systicsel>
     </ClockConfiguration>
     <PINInfo>
+        <PinSub pinname="PF0/HEXT_IN" signalname="CRM_HEXT_IN" signaltype="2"/>
+        <PinSub pinname="PF1/HEXT_OUT" signalname="CRM_HEXT_OUT" signaltype="2"/>
         <PinSub pinname="PA1" signalname="ADC1_IN1" signaltype="2"/>
         <PinSub pinname="PA2" signalname="ADC1_IN2" signaltype="2"/>
         <PinSub pinname="PA3" signalname="ADC1_IN3" signaltype="2"/>

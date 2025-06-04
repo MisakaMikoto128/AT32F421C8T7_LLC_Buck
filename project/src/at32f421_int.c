@@ -222,6 +222,21 @@ void SysTick_Handler(void)
 }
 
 /**
+  * @brief  this function handles PVM through EXINT Line detect handler.
+  * @param  none
+  * @retval none
+  */
+void PVM_IRQHandler(void)
+{
+  /* add user code begin PVM_IRQ 0 */
+
+  /* add user code end PVM_IRQ 0 */
+  /* add user code begin PVM_IRQ 1 */
+
+  /* add user code end PVM_IRQ 1 */
+}
+
+/**
   * @brief  this function handles TMR1 channel handler.
   * @param  none
   * @retval none

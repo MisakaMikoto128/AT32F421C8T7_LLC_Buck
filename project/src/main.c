@@ -27,6 +27,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include "at32f421_wk_config.h"
 #include "wk_adc.h"
+#include "wk_crc.h"
+#include "wk_pwc.h"
 #include "wk_tmr.h"
 #include "wk_dma.h"
 #include "wk_gpio.h"
@@ -110,6 +112,9 @@ int main(void)
   /* config periph clock. */
   wk_periph_clock_config();
 
+  /* init pwc function. */
+  wk_pwc_init();
+
   /* nvic config. */
   wk_nvic_config();
 
@@ -128,6 +133,9 @@ int main(void)
                         DMA1_CHANNEL1_MEMORY_BASE_ADDR, 
                         DMA1_CHANNEL1_BUFFER_SIZE);
   dma_channel_enable(DMA1_CHANNEL1, TRUE);
+
+  /* init crc function. */
+  wk_crc_init();
 
   /* init adc1 function. */
   wk_adc1_init();

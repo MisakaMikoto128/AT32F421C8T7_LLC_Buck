@@ -66,6 +66,7 @@
   * @note   the system clock is configured as follow:
   *         system clock (sclk)   = hick / 12 * pll_mult
   *         system clock source   = HICK_VALUE
+  *         - hext                = HEXT_VALUE
   *         - sclk                = 120000000
   *         - ahbdiv              = 1
   *         - ahbclk              = 120000000
@@ -91,6 +92,14 @@ void wk_system_clock_config(void)
 
   /* wait till lick is ready */
   while(crm_flag_get(CRM_LICK_STABLE_FLAG) != SET)
+  {
+  }
+
+  /* enable hext */
+  crm_clock_source_enable(CRM_CLOCK_SOURCE_HEXT, TRUE);
+
+  /* wait till hext is ready */
+  while(crm_hext_stable_wait() == ERROR)
   {
   }
 
@@ -150,6 +159,9 @@ void wk_periph_clock_config(void)
   /* enable dma1 periph clock */
   crm_periph_clock_enable(CRM_DMA1_PERIPH_CLOCK, TRUE);
 
+  /* enable crc periph clock */
+  crm_periph_clock_enable(CRM_CRC_PERIPH_CLOCK, TRUE);
+
   /* enable gpioa periph clock */
   crm_periph_clock_enable(CRM_GPIOA_PERIPH_CLOCK, TRUE);
 
@@ -173,6 +185,9 @@ void wk_periph_clock_config(void)
 
   /* enable tmr15 periph clock */
   crm_periph_clock_enable(CRM_TMR15_PERIPH_CLOCK, TRUE);
+
+  /* enable pwc periph clock */
+  crm_periph_clock_enable(CRM_PWC_PERIPH_CLOCK, TRUE);
 }
 
 /**
@@ -191,6 +206,7 @@ void wk_nvic_config(void)
   NVIC_SetPriority(DebugMonitor_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 0, 0));
   NVIC_SetPriority(PendSV_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 0, 0));
   NVIC_SetPriority(SysTick_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 15, 0));
+  nvic_irq_enable(PVM_IRQn, 0, 0);
   nvic_irq_enable(DMA1_Channel1_IRQn, 0, 0);
   nvic_irq_enable(TMR1_CH_IRQn, 0, 0);
   nvic_irq_enable(TMR15_GLOBAL_IRQn, 0, 0);

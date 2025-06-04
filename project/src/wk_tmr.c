@@ -75,7 +75,7 @@ void wk_tmr1_init(void)
   tmr_clock_source_div_set(TMR1, TMR_CLOCK_DIV1);
   tmr_repetition_counter_set(TMR1, 0);
   tmr_period_buffer_enable(TMR1, FALSE);
-  tmr_base_init(TMR1, 2999, 0);
+  tmr_base_init(TMR1, 1199, 0);
 
   /* configure primary mode settings */
   tmr_sub_sync_mode_set(TMR1, FALSE);
@@ -102,7 +102,7 @@ void wk_tmr1_init(void)
   tmr_output_struct.oc_idle_state = FALSE;
   tmr_output_struct.occ_idle_state = FALSE;
   tmr_output_channel_config(TMR1, TMR_SELECT_CHANNEL_2, &tmr_output_struct);
-  tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, 1500);
+  tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, 600);
   tmr_output_channel_buffer_enable(TMR1, TMR_SELECT_CHANNEL_2, FALSE);
 
   tmr_output_channel_immediately_set(TMR1, TMR_SELECT_CHANNEL_2, FALSE);
@@ -170,7 +170,7 @@ void wk_tmr15_init(void)
   tmr_clock_source_div_set(TMR15, TMR_CLOCK_DIV1);
   tmr_repetition_counter_set(TMR15, 0);
   tmr_period_buffer_enable(TMR15, FALSE);
-  tmr_base_init(TMR15, 5999, 0);
+  tmr_base_init(TMR15, 1199, 0);
 
   /* configure primary mode settings */
   tmr_sub_sync_mode_set(TMR15, FALSE);
@@ -197,7 +197,7 @@ void wk_tmr15_init(void)
   tmr_output_struct.oc_idle_state = FALSE;
   tmr_output_struct.occ_idle_state = FALSE;
   tmr_output_channel_config(TMR15, TMR_SELECT_CHANNEL_2, &tmr_output_struct);
-  tmr_channel_value_set(TMR15, TMR_SELECT_CHANNEL_2, 3000);
+  tmr_channel_value_set(TMR15, TMR_SELECT_CHANNEL_2, 600);
   tmr_output_channel_buffer_enable(TMR15, TMR_SELECT_CHANNEL_2, FALSE);
 
   tmr_output_channel_immediately_set(TMR15, TMR_SELECT_CHANNEL_2, FALSE);
