@@ -69,6 +69,28 @@ volatile uint16_t adc_buffer[ADC_RANK_NUM] = {0}; // ADC采样数据缓冲区
 #define DMA1_CHANNEL1_MEMORY_BASE_ADDR ((uint32_t)adc_buffer) // DMA1通道1内存地址
 #define DMA1_CHANNEL1_BUFFER_SIZE (ADC_RANK_NUM) // DMA1通道1缓冲区大小,单位是传输个数
 float votlage_debug[ADC_RANK_NUM] = {0}; // 电压调试数据
+
+#define ADC_VIN_RANK_IDX      0 // LLC输入电压,PA1
+#define ADC_IO_RANK_IDX       1 // Buck输出电流,PA2
+#define ADC_VO_TOTAL_RANK_IDX 2 // Buck输出电压,PA3
+#define ADC_VO_MID_RANK_IDX   3 // PA6
+#define ADC_IIN_RANK_IDX      4 // LLC输入电流,PA7
+#define ADC_V_LLC_RANK_IDX    5 // LLC输出电压,PB2
+
+// 预先计算的电压转换因子（Q15定点数）
+#define VREF (3.3f)  // 根据实际电压修改
+#define VOLTAGE_SCALE_FACTOR_Q15 (uint32_t)((VREF / 4096.0f) * 32768)  // Q15格式
+
+// 安全限制
+// 输入输出范围
+// PWM频率：LLC 谐振点160KHz，100-300KHz，Buck 100KHz
+// 
+void LLC_Set_PWM_Frequency(uint32_t frequency) {
+    // 设置LLC PWM频率
+    // 计算计数值
+    uint32_t count = (SystemCoreClock / frequency) - 1; // 假设SystemCoreClock是系统时钟频率
+    tmr_channel_value_set(TMR15, TMR_SELECT_CHANNEL_2, count);
+}
 /* add user code end 0 */
 
 /**
@@ -138,21 +160,6 @@ int main(void)
 }
 
   /* add user code begin 4 */
-#define ADC_VIN_RANK_IDX      0 // LLC输入电压,PA1
-#define ADC_IO_RANK_IDX       1 // Buck输出电流,PA2
-#define ADC_VO_TOTAL_RANK_IDX 2 // Buck输出电压,PA3
-#define ADC_VO_MID_RANK_IDX   3 // PA6
-#define ADC_IIN_RANK_IDX      4 // LLC输入电流,PA7
-#define ADC_V_LLC_RANK_IDX    5 // LLC输出电压,PB2
-
-// 预先计算的电压转换因子（Q15定点数）
-#define VREF (3.3f)  // 根据实际电压修改
-#define VOLTAGE_SCALE_FACTOR_Q15 (uint32_t)((VREF / 4096.0f) * 32768)  // Q15格式
-
-
-// 安全限制
-// 输入输出范围
-// PWM频率：LLC 谐振点160KHz，100-300KHz，Buck 100KHz
 
 /**
   * @brief  this function handles DMA1 Channel 1 handler.
