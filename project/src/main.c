@@ -149,6 +149,11 @@ int main(void)
 #define VREF (3.3f)  // 根据实际电压修改
 #define VOLTAGE_SCALE_FACTOR_Q15 (uint32_t)((VREF / 4096.0f) * 32768)  // Q15格式
 
+
+// 安全限制
+// 输入输出范围
+// PWM频率：LLC 谐振点160KHz，100-300KHz，Buck 100KHz
+
 /**
   * @brief  this function handles DMA1 Channel 1 handler.
   * @param  none
@@ -159,14 +164,18 @@ void DMA1_Channel1_IRQHandler(void)
   /* add user code begin DMA1_Channel1_IRQ 0 */
   /* check if the DMA1 Channel 1 transfer complete interrupt flag is set */
   if (dma_interrupt_flag_get(DMA1_FDT1_FLAG) != RESET) {
+      gpio_bits_set(IO1_GPIO_PORT, IO1_PIN);
       /* clear the DMA1 Channel 1 transfer complete interrupt flag */
       for (int i = 0; i < ADC_RANK_NUM; i++) {
           votlage_debug[i] = adc_buffer[i] * 3.3f / 4096.0f; // 将ADC值转换为电压值
           // 定点数计算：adc_value * scale_factor >> 15
           // votlage_debug[i] = (adc_buffer[i] * VOLTAGE_SCALE_FACTOR_Q15 + 0x4000) >> 15;
       }
+      // Toggle gpio
+
       dma_flag_clear(DMA1_FDT1_FLAG);
       /* add user code here to handle the transfer complete event */
+      gpio_bits_reset(IO1_GPIO_PORT, IO1_PIN);
   }
 
   /* check if the DMA1 Channel 1 half transfer interrupt flag is set */
