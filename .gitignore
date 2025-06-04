@@ -7,3 +7,6 @@ project/MDK_V5/objects/*
 .eide.usr.ctx.json
 build/*
 project/MDK_V5/JLinkLog.txt
+project/MDK_V5/keil-build-viewer-record.txt
+project/MDK_V5/keil-build-viewer.log
+project/MDK_V5/listings/AT32F421C8T7_LLC_Buck.map
