@@ -81,6 +81,18 @@ void wk_tmr1_init(void)
   tmr_sub_sync_mode_set(TMR1, FALSE);
   tmr_primary_mode_select(TMR1, TMR_PRIMARY_SEL_RESET);
 
+  /* configure channel 1 output settings */
+  tmr_output_struct.oc_mode = TMR_OUTPUT_CONTROL_OFF;
+  tmr_output_struct.oc_output_state = TRUE;
+  tmr_output_struct.occ_output_state = FALSE;
+  tmr_output_struct.oc_polarity = TMR_OUTPUT_ACTIVE_HIGH;
+  tmr_output_struct.occ_polarity = TMR_OUTPUT_ACTIVE_HIGH;
+  tmr_output_struct.oc_idle_state = FALSE;
+  tmr_output_struct.occ_idle_state = FALSE;
+  tmr_output_channel_config(TMR1, TMR_SELECT_CHANNEL_1, &tmr_output_struct);
+  tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_1, 0);
+  tmr_output_channel_buffer_enable(TMR1, TMR_SELECT_CHANNEL_1, FALSE);
+
   /* configure channel 2 output settings */
   tmr_output_struct.oc_mode = TMR_OUTPUT_CONTROL_PWM_MODE_A;
   tmr_output_struct.oc_output_state = TRUE;
@@ -163,6 +175,18 @@ void wk_tmr15_init(void)
   /* configure primary mode settings */
   tmr_sub_sync_mode_set(TMR15, FALSE);
   tmr_primary_mode_select(TMR15, TMR_PRIMARY_SEL_RESET);
+
+  /* configure channel 1 output settings */
+  tmr_output_struct.oc_mode = TMR_OUTPUT_CONTROL_OFF;
+  tmr_output_struct.oc_output_state = TRUE;
+  tmr_output_struct.occ_output_state = FALSE;
+  tmr_output_struct.oc_polarity = TMR_OUTPUT_ACTIVE_HIGH;
+  tmr_output_struct.occ_polarity = TMR_OUTPUT_ACTIVE_HIGH;
+  tmr_output_struct.oc_idle_state = FALSE;
+  tmr_output_struct.occ_idle_state = FALSE;
+  tmr_output_channel_config(TMR15, TMR_SELECT_CHANNEL_1, &tmr_output_struct);
+  tmr_channel_value_set(TMR15, TMR_SELECT_CHANNEL_1, 0);
+  tmr_output_channel_buffer_enable(TMR15, TMR_SELECT_CHANNEL_1, FALSE);
 
   /* configure channel 2 output settings */
   tmr_output_struct.oc_mode = TMR_OUTPUT_CONTROL_PWM_MODE_A;

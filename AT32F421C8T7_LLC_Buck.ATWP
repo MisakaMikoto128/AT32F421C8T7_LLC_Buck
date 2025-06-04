@@ -41,6 +41,7 @@
     </SYSTEM>
     <TMR1>
         <Mode>
+            <ModeSub name="Channel1 mode" value="Output_without_pin"/>
             <ModeSub name="Channel2 mode" value="Output_CH2_CH2C"/>
             <ModeSub name="Activated" value="TRUE"/>
         </Mode>
@@ -52,6 +53,7 @@
     </TMR1>
     <TMR15>
         <Mode>
+            <ModeSub name="Channel1 mode" value="Output_without_pin"/>
             <ModeSub name="Channel2 mode" value="Output_CH2"/>
             <ModeSub name="Activated" value="TRUE"/>
         </Mode>
