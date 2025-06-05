@@ -217,6 +217,7 @@ int main(void)
     wk_tmr15_init();
 
     /* add user code begin 2 */
+    wk_delay_ms(1500); 
     user_pid_init();
     scope_init();
     // ulog_init_user();
