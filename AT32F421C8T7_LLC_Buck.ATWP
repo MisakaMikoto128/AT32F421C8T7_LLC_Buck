@@ -106,10 +106,21 @@
         <TMR15_GLOBAL_IRQHandler>1;0;0;0;0</TMR15_GLOBAL_IRQHandler>
     </NVIC>
     <GPIO>
+        <Signal SignalName="TMR1_CH2C" PinName="PB14">
+            <Parameters name="GPIO_DriverCapability" value="GPIO_DRIVE_STRENGTH_STRONGER"/>
+        </Signal>
+        <Signal SignalName="TMR15_CH2" PinName="PB15">
+            <Parameters name="GPIO_DriverCapability" value="GPIO_DRIVE_STRENGTH_STRONGER"/>
+        </Signal>
+        <Signal SignalName="TMR1_CH2" PinName="PA9">
+            <Parameters name="GPIO_DriverCapability" value="GPIO_DRIVE_STRENGTH_STRONGER"/>
+        </Signal>
         <Signal SignalName="GPIO_Output" PinName="PA15">
+            <Parameters name="GPIO_DriverCapability" value="GPIO_DRIVE_STRENGTH_STRONGER"/>
             <Parameters name="Label" value="IO2"/>
         </Signal>
         <Signal SignalName="GPIO_Output" PinName="PB3">
+            <Parameters name="GPIO_DriverCapability" value="GPIO_DRIVE_STRENGTH_STRONGER"/>
             <Parameters name="Label" value="IO1"/>
         </Signal>
     </GPIO>
