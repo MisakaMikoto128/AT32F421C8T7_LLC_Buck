@@ -114,7 +114,7 @@ void wk_tmr1_init(void)
   tmr_brkdt_struct.fcsoen_state = FALSE;
   tmr_brkdt_struct.fcsodis_state = FALSE;
   tmr_brkdt_struct.wp_level = TMR_WP_OFF;
-  tmr_brkdt_struct.deadtime = 0;
+  tmr_brkdt_struct.deadtime = 30;
   tmr_brkdt_config(TMR1, &tmr_brkdt_struct);
 
 
