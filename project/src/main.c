@@ -209,7 +209,7 @@ int main(void)
 
     /* init adc1 function. */
     wk_adc1_init();
-
+    wk_delay_ms(2500); 
     /* init tmr1 function. */
     wk_tmr1_init();
 
@@ -217,7 +217,7 @@ int main(void)
     wk_tmr15_init();
 
     /* add user code begin 2 */
-    wk_delay_ms(1500); 
+
     user_pid_init();
     scope_init();
     // ulog_init_user();
