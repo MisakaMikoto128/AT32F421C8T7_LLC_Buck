@@ -18,7 +18,7 @@
             <ModeSub name="IN10" value="TRUE"/>
         </Mode>
         <Parameters>
-            <ParametersSub name="OrdinaryTriggerSource" value="ADC12_ORDINARY_TRIG_TMR1CH2"/>
+            <ParametersSub name="OrdinaryTriggerSource" value="ADC12_ORDINARY_TRIG_TMR15CH1"/>
             <ParametersSub name="NbrOfOrdinarySequence" value="6"/>
             <ParametersSub name="Channel_OrdinarySequence_1" value="ADC_CHANNEL_1"/>
             <ParametersSub name="Channel_OrdinarySequence_2" value="ADC_CHANNEL_2"/>
@@ -72,6 +72,8 @@
         </Mode>
         <Parameters>
             <ParametersSub name="Period" value="1199"/>
+            <ParametersSub name="DeadTime" value="30"/>
+            <ParametersSub name="DeadTimeValue" value="250"/>
             <ParametersSub name="OCMode_2" value="TMR_OUTPUT_CONTROL_PWM_MODE_A"/>
             <ParametersSub name="ChannelData_2" value="600"/>
         </Parameters>

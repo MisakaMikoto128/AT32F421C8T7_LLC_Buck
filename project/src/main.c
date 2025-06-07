@@ -66,31 +66,58 @@
 
 /* private user code ---------------------------------------------------------*/
 /* add user code begin 0 */
-#define ADC_RANK_NUM 6                                        // ADC采样通道数
-volatile uint16_t adc_buffer[ADC_RANK_NUM] = {0};             // ADC采样数据缓冲区
-#define DMA1_CHANNEL1_MEMORY_BASE_ADDR ((uint32_t)adc_buffer) // DMA1通道1内存地址
-#define DMA1_CHANNEL1_BUFFER_SIZE      (ADC_RANK_NUM)         // DMA1通道1缓冲区大小,单位是传输个数
-float votlage_debug[ADC_RANK_NUM] = {0};                      // 电压调试数据
-
-#define ADC_VIN_RANK_IDX      0 // LLC输入电压,PA1
-#define ADC_IO_RANK_IDX       1 // Buck输出电流,PA2
-#define ADC_VO_TOTAL_RANK_IDX 2 // Buck输出电压,PA3
-#define ADC_VO_MID_RANK_IDX   3 // PA6
-#define ADC_IIN_RANK_IDX      4 // LLC输入电流,PA7
-#define ADC_V_LLC_RANK_IDX    5 // LLC输出电压,PB2
 
 // 预先计算的电压转换因子（Q15定点数）
 #define VREF                     (3.3f)                               // 根据实际电压修改
+#define ADC_MAX_VALUE            (4095)                               // ADC最大值
 #define VOLTAGE_SCALE_FACTOR_Q15 (uint32_t)((VREF / 4096.0f) * 32768) // Q15格式
+
+#define ADC_RANK_NUM             6                            // ADC采样通道数
+volatile uint16_t adc_buffer[ADC_RANK_NUM] = {0};             // ADC采样数据缓冲区
+#define DMA1_CHANNEL1_MEMORY_BASE_ADDR ((uint32_t)adc_buffer) // DMA1通道1内存地址
+#define DMA1_CHANNEL1_BUFFER_SIZE      (ADC_RANK_NUM)         // DMA1通道1缓冲区大小,单位是传输个数
+
+#define ADC_VIN_RANK_IDX               0 // LLC输入电压,PA1
+#define ADC_IO_RANK_IDX                1 // Buck输出电流,PA2
+#define ADC_VO_TOTAL_RANK_IDX          2 // Buck输出电压,PA3
+#define ADC_VO_MID_RANK_IDX            3 // PA6
+#define ADC_IIN_RANK_IDX               4 // LLC输入电流,PA7
+#define ADC_V_LLC_RANK_IDX             5 // LLC输出电压,PB2
+
+#define SCALE_ADC_VALUE_TO_INPUT_VOLT  (1.0f * (VREF / ADC_MAX_VALUE))
+#define SCALE_ADC_VALUE_TO_BUCK_CURR   (1.0f * (VREF / ADC_MAX_VALUE))
+#define SCALE_ADC_VALUE_TO_BUCK_VOLT   (111.17f * (VREF / ADC_MAX_VALUE))
+#define SCALE_ADC_VALUE_TO_VO_MID_VOLT (1.0f * (VREF / ADC_MAX_VALUE))
+#define SCALE_ADC_VALUE_TO_LLC_CURR    (1.0f * (VREF / ADC_MAX_VALUE))
+#define SCALE_ADC_VALUE_TO_LLC_VOLT    (109.65f * (VREF / ADC_MAX_VALUE))
+
+#define SCALE_INPUT_VOLT_TO_ADC_VALUE  (1.0f)
+#define SCALE_BUCK_CURR_TO_ADC_VALUE   (1.0f)
+#define SCALE_BUCK_VOLT_TO_ADC_VALUE   (1.0f / SCALE_ADC_VALUE_TO_BUCK_VOLT)
+#define SCALE_VO_MID_VOLT_TO_ADC_VALUE (1.0f)
+#define SCALE_LLC_CURR_TO_ADC_VALUE    (1.0f)
+#define SCALE_LLC_VOLT_TO_ADC_VALUE    (1.0f / SCALE_ADC_VALUE_TO_LLC_VOLT)
+
+float votlage_debug[ADC_RANK_NUM]       = {0}; // 电压调试数据
+float adc_to_target_scale[ADC_RANK_NUM] = {
+    SCALE_ADC_VALUE_TO_INPUT_VOLT,
+    SCALE_ADC_VALUE_TO_BUCK_CURR,
+    SCALE_ADC_VALUE_TO_BUCK_VOLT,
+    SCALE_ADC_VALUE_TO_VO_MID_VOLT,
+    SCALE_ADC_VALUE_TO_LLC_CURR,
+    SCALE_ADC_VALUE_TO_LLC_VOLT,
+};
+
 // 安全限制
 // 输入输出范围
-// PWM频率：LLC 谐振点160KHz，100-300KHz，Buck 100KHz
-#define LLC_PWM_PERIOD_UPPER_LIMIT  1200  // LLC PWM周期上限
-#define LLC_PWM_PERIOD_LOWER_LIMIT  400   // LLC PWM周期下限
-#define BUCK_PWM_PERIOD_UPPER_LIMIT 1200  // Buck PWM周期上限
-#define BUCK_PWM_PERIOD_LOWER_LIMIT 0     // Buck PWM周期下限
+// PWM频率：LLC 谐振点160KHz，100-300KHz，Buck 100KHz 输入限流5A，输出最大1A。
+#define LLC_PWM_PERIOD_UPPER_LIMIT  1200  // LLC PWM周期寄存器上限
+#define LLC_PWM_PERIOD_LOWER_LIMIT  400   // LLC PWM周期寄存器下限
+#define BUCK_PWM_PERIOD_UPPER_LIMIT 1200  // Buck PWM周期寄存器上限
+#define BUCK_PWM_PERIOD_LOWER_LIMIT 0     // Buck PWM周期寄存器下限
 #define LLC_VOLTAGE_UPPER_LIMIT     (200) // LLC输出电压上限,单位是V
 
+// 187mV<----->1A 电流采样
 #include "pid_q32.h"
 // PID控制器实例
 Inc_PID_Q32_t llc_volt_pid;
@@ -148,15 +175,52 @@ void user_pid_init()
     buck_volt_pid.D     = 0;
 }
 
-/**
- * @brief 获取LLC目标电流对应ADC32bit无符号整数值
- * 
- * @param target_llc_curr 
- * @return uint32_t 
- */
-uint32_t get_llc_curr_target_adc_value_q32(float target_llc_curr)
+void set_llc_volt_target_to_adc_value_q32(float target_llc_volt)
 {
+    uint32_t value       = target_llc_volt * SCALE_LLC_VOLT_TO_ADC_VALUE;
+    llc_volt_pid.iTarget = value;
+}
 
+void set_llc_curr_target_to_adc_value_q32(float target_llc_curr)
+{
+    uint32_t value       = target_llc_curr * SCALE_LLC_CURR_TO_ADC_VALUE;
+    llc_curr_pid.iTarget = value;
+}
+
+void set_buck_volt_target_to_adc_value_q32(float target_buck_volt)
+{
+    uint32_t value        = target_buck_volt * SCALE_BUCK_VOLT_TO_ADC_VALUE;
+    buck_volt_pid.iTarget = value;
+}
+
+void llc_volt_pid_update_sample()
+{
+    llc_volt_pid.iSampling = adc_buffer[ADC_V_LLC_RANK_IDX];
+}
+
+void llc_curr_pid_update_sample()
+{
+    llc_curr_pid.iSampling = adc_buffer[ADC_IIN_RANK_IDX];
+}
+
+void buck_volt_pid_update_sample()
+{
+    buck_volt_pid.iSampling = adc_buffer[ADC_VO_TOTAL_RANK_IDX];
+}
+
+void llc_volt_pid_result_allpy()
+{
+    llc_set_tmr_period(llc_volt_pid.iF >> PID_SHIFT);
+}
+
+void llc_curr_pid_result_allpy()
+{
+    llc_set_tmr_period(llc_curr_pid.iF >> PID_SHIFT);
+}
+
+void buck_volt_pid_result_allpy()
+{
+    buck_set_tmr_channel_value(buck_volt_pid.iF >> PID_SHIFT);
 }
 
 #include "log.h"
@@ -172,6 +236,40 @@ void scope_init()
      * * // 发送数据到JScope,16字节
      * SEGGER_RTT_Write(1, &rtt_data, 16);
      */
+}
+
+void llc_output_enable()
+{
+    tmr_channel_enable(TMR1, TMR_SELECT_CHANNEL_2, TRUE);
+    tmr_channel_enable(TMR1, TMR_SELECT_CHANNEL_2C, TRUE);
+}
+
+void llc_output_disable()
+{
+    tmr_channel_enable(TMR1, TMR_SELECT_CHANNEL_2, FALSE);
+    tmr_channel_enable(TMR1, TMR_SELECT_CHANNEL_2C, FALSE);
+}
+
+void buck_output_enable()
+{
+    tmr_channel_enable(TMR15, TMR_SELECT_CHANNEL_2, TRUE);
+}
+
+void buck_output_disable()
+{
+    tmr_channel_enable(TMR15, TMR_SELECT_CHANNEL_2, FALSE);
+}
+
+void disable_all_output()
+{
+    llc_output_disable();
+    buck_output_disable();
+}
+
+void enable_all_output()
+{
+    llc_output_enable();
+    buck_output_enable();
 }
 
 /* add user code end 0 */
@@ -230,21 +328,21 @@ int main(void)
     /* add user code begin 2 */
 
     user_pid_init();
-    scope_init();
-    // ulog_init_user();
-    // ULOG_INFO("AT32F421 WK Demo Start");
+    // scope_init();
+    ulog_init_user();
+    ULOG_INFO("AT32F421 WK Demo Start");
 
     dma_interrupt_enable(DMA1_CHANNEL1, DMA_FDT_INT, TRUE);
     dma_interrupt_enable(DMA1_CHANNEL1, DMA_HDT_INT, TRUE);
     dma_interrupt_enable(DMA1_CHANNEL1, DMA_DTERR_INT, TRUE);
-
-    llc_set_pwm_frequency(160000U);
-    tmr_channel_enable(TMR15, TMR_SELECT_CHANNEL_2, TRUE);
+    disable_all_output(); 
+    llc_set_pwm_frequency(400000U);
+    buck_set_tmr_channel_value(600);
     tmr_counter_enable(TMR15, TRUE);
-
-    tmr_channel_enable(TMR1, TMR_SELECT_CHANNEL_2, TRUE);
-    tmr_channel_enable(TMR1, TMR_SELECT_CHANNEL_2C, TRUE);
     tmr_counter_enable(TMR1, TRUE);
+    // enable_all_output();
+    buck_output_enable();
+
     uint16_t rtt_data[6] = {0};
 
     /* add user code end 2 */
@@ -259,7 +357,7 @@ int main(void)
         rtt_data[4] = votlage_debug[ADC_IIN_RANK_IDX] * 1000;      // LLC输入电流
         rtt_data[5] = votlage_debug[ADC_V_LLC_RANK_IDX] * 1000;    // LLC输出电压
         // 发送数据到JScope,12字节
-        SEGGER_RTT_Write(1, &rtt_data, sizeof(rtt_data));
+        // SEGGER_RTT_Write(1, &rtt_data, sizeof(rtt_data));
         /* add user code end 3 */
     }
 }
@@ -285,6 +383,37 @@ void calculate_divmod(int dividend, int divisor, int *quot, int *rem)
     *rem         = result.rem;
 }
 
+void adc_dma_handler()
+{
+    for (int i = 0; i < ADC_RANK_NUM; i++) {
+        votlage_debug[i] = adc_buffer[i] * adc_to_target_scale[i]; // 将ADC值转换为电压值
+        // 定点数计算：adc_value * scale_factor >> 15
+        // votlage_debug[i] = (adc_buffer[i] * VOLTAGE_SCALE_FACTOR_Q15 + 0x4000) >> 15;
+    }
+
+// LLC输出过压保护
+#define LLC_OV_ADC_VALUE(volt) ((volt) * SCALE_LLC_VOLT_TO_ADC_VALUE)
+#define LLC_OV_THRESHOLD       LLC_OV_ADC_VALUE(350)
+// Buck输出过压保护
+#define BUCK_OV_ADC_VALUE(volt) ((volt) * SCALE_BUCK_VOLT_TO_ADC_VALUE)
+#define BUCK_OV_THRESHOLD       BUCK_OV_ADC_VALUE(200)
+
+    if ((adc_buffer[ADC_V_LLC_RANK_IDX] > LLC_OV_THRESHOLD) ||
+        (adc_buffer[ADC_VO_TOTAL_RANK_IDX] > BUCK_OV_THRESHOLD)) {
+        // LLC输出过压或输入过压，禁用所有输出
+        disable_all_output();
+    }
+    // llc_volt_pid_update_sample();
+    // llc_curr_pid_update_sample();
+    // buck_volt_pid_update_sample();
+    // Inc_PID_Q32_Update_AddDelta(&llc_volt_pid);
+    // Inc_PID_Q32_Update_AddDelta(&llc_curr_pid);
+    // Inc_PID_Q32_Update_AddDelta(&buck_volt_pid);
+    // llc_volt_pid_result_allpy();
+    // llc_curr_pid_result_allpy();
+    // buck_volt_pid_result_allpy();
+}
+
 /**
  * @brief  this function handles DMA1 Channel 1 handler.
  * @param  none
@@ -297,11 +426,7 @@ void DMA1_Channel1_IRQHandler(void)
     if (dma_interrupt_flag_get(DMA1_FDT1_FLAG) != RESET) {
         gpio_bits_set(IO1_GPIO_PORT, IO1_PIN);
         /* clear the DMA1 Channel 1 transfer complete interrupt flag */
-        for (int i = 0; i < ADC_RANK_NUM; i++) {
-            votlage_debug[i] = adc_buffer[i] * 3.3f / 4096.0f; // 将ADC值转换为电压值
-            // 定点数计算：adc_value * scale_factor >> 15
-            // votlage_debug[i] = (adc_buffer[i] * VOLTAGE_SCALE_FACTOR_Q15 + 0x4000) >> 15;
-        }
+        adc_dma_handler();
         dma_flag_clear(DMA1_FDT1_FLAG);
         /* add user code here to handle the transfer complete event */
         gpio_bits_reset(IO1_GPIO_PORT, IO1_PIN);
