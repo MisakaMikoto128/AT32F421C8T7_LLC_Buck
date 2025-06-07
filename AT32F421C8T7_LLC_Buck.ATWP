@@ -86,6 +86,7 @@
         </Mode>
         <Parameters>
             <ParametersSub name="Period" value="1199"/>
+            <ParametersSub name="OCMode_1" value="TMR_OUTPUT_CONTROL_PWM_MODE_A"/>
             <ParametersSub name="ChannelData_1" value="600"/>
             <ParametersSub name="OCMode_2" value="TMR_OUTPUT_CONTROL_PWM_MODE_A"/>
             <ParametersSub name="ChannelData_2" value="600"/>

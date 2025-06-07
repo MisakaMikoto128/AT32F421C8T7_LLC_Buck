@@ -335,6 +335,8 @@ int main(void)
     dma_interrupt_enable(DMA1_CHANNEL1, DMA_FDT_INT, TRUE);
     dma_interrupt_enable(DMA1_CHANNEL1, DMA_HDT_INT, TRUE);
     dma_interrupt_enable(DMA1_CHANNEL1, DMA_DTERR_INT, TRUE);
+    // ADC触发源使能
+    tmr_channel_enable(TMR15, TMR_SELECT_CHANNEL_1, TRUE);
     disable_all_output(); 
     llc_set_pwm_frequency(400000U);
     buck_set_tmr_channel_value(600);
