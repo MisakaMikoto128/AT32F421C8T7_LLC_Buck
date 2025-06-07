@@ -148,6 +148,17 @@ void user_pid_init()
     buck_volt_pid.D     = 0;
 }
 
+/**
+ * @brief 获取LLC目标电流对应ADC32bit无符号整数值
+ * 
+ * @param target_llc_curr 
+ * @return uint32_t 
+ */
+uint32_t get_llc_curr_target_adc_value_q32(float target_llc_curr)
+{
+
+}
+
 #include "log.h"
 uint8_t buf[2048]; // 定义全局变量
 
@@ -209,7 +220,7 @@ int main(void)
 
     /* init adc1 function. */
     wk_adc1_init();
-    wk_delay_ms(2500); 
+    wk_delay_ms(2500);
     /* init tmr1 function. */
     wk_tmr1_init();
 
@@ -234,13 +245,13 @@ int main(void)
     tmr_channel_enable(TMR1, TMR_SELECT_CHANNEL_2, TRUE);
     tmr_channel_enable(TMR1, TMR_SELECT_CHANNEL_2C, TRUE);
     tmr_counter_enable(TMR1, TRUE);
-        uint16_t rtt_data[6]={0};
+    uint16_t rtt_data[6] = {0};
 
     /* add user code end 2 */
 
     while (1) {
         /* add user code begin 3 */
-        wk_delay_ms(100); 
+        wk_delay_ms(100);
         rtt_data[0] = votlage_debug[ADC_VIN_RANK_IDX] * 1000;      // 输入电压
         rtt_data[1] = votlage_debug[ADC_IO_RANK_IDX] * 1000;       // Buck输出电流
         rtt_data[2] = votlage_debug[ADC_VO_TOTAL_RANK_IDX] * 1000; // Buck输出电压
