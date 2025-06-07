@@ -100,7 +100,7 @@ void wk_adc1_init(void)
   adc_ordinary_channel_set(ADC1, ADC_CHANNEL_7, 5, ADC_SAMPLETIME_1_5);
   adc_ordinary_channel_set(ADC1, ADC_CHANNEL_10, 6, ADC_SAMPLETIME_1_5);
 
-  adc_ordinary_conversion_trigger_set(ADC1, ADC12_ORDINARY_TRIG_TMR1CH2, TRUE);
+  adc_ordinary_conversion_trigger_set(ADC1, ADC12_ORDINARY_TRIG_TMR15CH1, TRUE);
 
   adc_ordinary_part_mode_enable(ADC1, FALSE);
 
