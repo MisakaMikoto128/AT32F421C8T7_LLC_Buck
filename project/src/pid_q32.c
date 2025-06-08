@@ -83,8 +83,6 @@ int Inc_PID_Q32_Update_SubDelta(pInc_PID_Q32_t self)
     int64_t F     = 0;
     // Calculate current error
     self->iError  = self->iTarget - self->iSampling;
-    int32_t delta = 0;
-    int64_t F     = 0;
     delta         = self->P * (self->iError - self->iLastError) +
             self->I * self->iError +
             self->D * (self->iError - self->iPrevError);

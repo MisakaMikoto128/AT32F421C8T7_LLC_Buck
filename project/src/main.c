@@ -182,7 +182,7 @@ void llc_set_pwm_duty_cycle(float duty_cycle)
         duty_cycle = 1.0f;
     }
     // 设置LLC PWM占空比
-    uint32_t period = llc_get_tmr_period();
+    uint32_t period = tmr_channel_value_get(TMR1, TMR_SELECT_CHANNEL_2); // 获取当前周期值
     uint32_t value  = (uint32_t)(period * duty_cycle);
     tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, value);
 }
@@ -355,12 +355,12 @@ int main(void)
     // 延时一段时间获取ADC初始值，用于校准霍尔电流传感器
     wk_delay_ms(200);
     // 保存初始值
-    memcpy(adc_buffer_init, adc_buffer, sizeof(adc_buffer_init));
+    memcpy((void *)adc_buffer_init, (void *)adc_buffer, sizeof(adc_buffer_init));
     // 初始化PID控制器
     user_pid_init();
     // 设置过流保护阈值
     LLC_OC_THRESHOLD = llc_curr_to_adc_value(LLC_INPUT_CURRENT_UPPER_LIMIT);
-
+    while (1);
     dma_interrupt_enable(DMA1_CHANNEL1, DMA_FDT_INT, TRUE);
     dma_interrupt_enable(DMA1_CHANNEL1, DMA_HDT_INT, TRUE);
     dma_interrupt_enable(DMA1_CHANNEL1, DMA_DTERR_INT, TRUE);
