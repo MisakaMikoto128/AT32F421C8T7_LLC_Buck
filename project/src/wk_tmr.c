@@ -118,9 +118,9 @@ void wk_tmr1_init(void)
   tmr_brkdt_config(TMR1, &tmr_brkdt_struct);
 
 
-  tmr_output_enable(TMR1, TRUE);
+  // tmr_output_enable(TMR1, TRUE);
 
-  tmr_counter_enable(TMR1, TRUE);
+  // tmr_counter_enable(TMR1, TRUE);
 
   /**
    * Users need to configure TMR1 interrupt functions according to the actual application.
@@ -214,9 +214,9 @@ void wk_tmr15_init(void)
   tmr_brkdt_struct.deadtime = 0;
   tmr_brkdt_config(TMR15, &tmr_brkdt_struct);
 
-  tmr_output_enable(TMR15, TRUE);
+  // tmr_output_enable(TMR15, TRUE);
 
-  tmr_counter_enable(TMR15, TRUE);
+  // tmr_counter_enable(TMR15, TRUE);
 
   /**
    * Users need to configure TMR15 interrupt functions according to the actual application.

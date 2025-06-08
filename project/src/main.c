@@ -127,11 +127,17 @@ Inc_PID_Q32_t buck_volt_pid;
 void llc_set_tmr_period(uint32_t period)
 {
     tmr_period_value_set(TMR1, period);
-    tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, period >> 1); // 设置占空比为50%
+    tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, period * 0.2); // 设置占空比为50%
 }
 
 void llc_set_pwm_frequency(uint32_t frequency)
 {
+    if (frequency > 500000U) {
+        frequency = 500000U;
+    }
+    if (frequency < 100000U) {
+        frequency = 100000U;
+    }
     // 设置LLC PWM频率
     // 计算计数值
 #define TMR1_CLK_FREQ 120000000 // TMR1时钟频率为120MHz
@@ -141,6 +147,9 @@ void llc_set_pwm_frequency(uint32_t frequency)
 
 void buck_set_tmr_channel_value(uint32_t value)
 {
+    if (value > BUCK_PWM_PERIOD_UPPER_LIMIT) {
+        value = BUCK_PWM_PERIOD_UPPER_LIMIT;
+    }
     // 设置Buck TMR通道2的值
     tmr_channel_value_set(TMR15, TMR_SELECT_CHANNEL_2, value);
 }
@@ -272,6 +281,22 @@ void enable_all_output()
     buck_output_enable();
 }
 
+bool have_new_buck_period_wait_to_set = false; // 是否有新的Buck周期等待设置
+int32_t new_buck_period               = 0;     // 新的Buck周期值
+int32_t curr_buck_period              = 0;     // 当前Buck周期值
+int32_t buck_step                     = 1;    // Buck周期步进值，单位是寄存器值
+void set_new_buck_period(int32_t period)
+{
+    // 设置新的Buck周期值
+    if (period < BUCK_PWM_PERIOD_LOWER_LIMIT) {
+        period = BUCK_PWM_PERIOD_LOWER_LIMIT;
+    } else if (period > BUCK_PWM_PERIOD_UPPER_LIMIT) {
+        period = BUCK_PWM_PERIOD_UPPER_LIMIT;
+    }
+    new_buck_period               = period;
+    have_new_buck_period_wait_to_set = true; // 标志位设置为true，表示有新的周期等待设置
+}
+
 /* add user code end 0 */
 
 /**
@@ -318,10 +343,10 @@ int main(void)
 
     /* init adc1 function. */
     wk_adc1_init();
-    wk_delay_ms(2500);
+    wk_delay_ms(500);
     /* init tmr1 function. */
     wk_tmr1_init();
-
+    
     /* init tmr15 function. */
     wk_tmr15_init();
 
@@ -337,29 +362,69 @@ int main(void)
     dma_interrupt_enable(DMA1_CHANNEL1, DMA_DTERR_INT, TRUE);
     // ADC触发源使能
     tmr_channel_enable(TMR15, TMR_SELECT_CHANNEL_1, TRUE);
-    disable_all_output(); 
+    disable_all_output();
     llc_set_pwm_frequency(400000U);
-    buck_set_tmr_channel_value(600);
+    // 增大值Buck占空比增大输出增大，关闭设置为0
+    buck_set_tmr_channel_value(0);
+    
+    // 设置完LLC的频率后再使能LLC的驱动PWM输出，消除暂态
+    tmr_output_enable(TMR1, TRUE);
+    // 同样的Buck置完再频率后再使能驱动PWM输出，消除暂态
+    tmr_output_enable(TMR15, TRUE);
+    
+    // 启动定时器
     tmr_counter_enable(TMR15, TRUE);
     tmr_counter_enable(TMR1, TRUE);
     // enable_all_output();
-    buck_output_enable();
+    // buck_output_enable();
+    llc_output_enable();
 
-    uint16_t rtt_data[6] = {0};
+    // LLC软起动开环
+    uint32_t freq = 400000U;
+    for (; freq > 300000U; freq -= 100U) {
+        llc_set_pwm_frequency(freq);
+        wk_delay_ms(1);
+    }
+
+    // Buck软起动开环
+    // set_new_buck_period(600); // 设置新的Buck周期为1000
+
+    // uint16_t rtt_data[6] = {0};
 
     /* add user code end 2 */
 
     while (1) {
         /* add user code begin 3 */
-        wk_delay_ms(100);
-        rtt_data[0] = votlage_debug[ADC_VIN_RANK_IDX] * 1000;      // 输入电压
-        rtt_data[1] = votlage_debug[ADC_IO_RANK_IDX] * 1000;       // Buck输出电流
-        rtt_data[2] = votlage_debug[ADC_VO_TOTAL_RANK_IDX] * 1000; // Buck输出电压
-        rtt_data[3] = votlage_debug[ADC_VO_MID_RANK_IDX] * 1000;   // Buck中点电压
-        rtt_data[4] = votlage_debug[ADC_IIN_RANK_IDX] * 1000;      // LLC输入电流
-        rtt_data[5] = votlage_debug[ADC_V_LLC_RANK_IDX] * 1000;    // LLC输出电压
+        // wk_delay_ms(100);
+        // rtt_data[0] = votlage_debug[ADC_VIN_RANK_IDX] * 1000;      // 输入电压
+        // rtt_data[1] = votlage_debug[ADC_IO_RANK_IDX] * 1000;       // Buck输出电流
+        // rtt_data[2] = votlage_debug[ADC_VO_TOTAL_RANK_IDX] * 1000; // Buck输出电压
+        // rtt_data[3] = votlage_debug[ADC_VO_MID_RANK_IDX] * 1000;   // Buck中点电压
+        // rtt_data[4] = votlage_debug[ADC_IIN_RANK_IDX] * 1000;      // LLC输入电流
+        // rtt_data[5] = votlage_debug[ADC_V_LLC_RANK_IDX] * 1000;    // LLC输出电压
         // 发送数据到JScope,12字节
         // SEGGER_RTT_Write(1, &rtt_data, sizeof(rtt_data));
+
+        if (have_new_buck_period_wait_to_set) {
+            // 如果有新的Buck周期等待设置
+            if (new_buck_period > curr_buck_period) {
+                if (curr_buck_period + buck_step >= new_buck_period) {
+                    curr_buck_period                 = new_buck_period; // 达到目标周期
+                    have_new_buck_period_wait_to_set = false;           // 重置标志位
+                } else {
+                    curr_buck_period += buck_step; // 增加占空比
+                }
+            } else if (new_buck_period < curr_buck_period) {
+                if (curr_buck_period - buck_step <= new_buck_period) {
+                    curr_buck_period                 = new_buck_period; // 达到目标周期
+                    have_new_buck_period_wait_to_set = false;           // 重置标志位
+                } else {
+                    curr_buck_period -= buck_step; // 减少占空比
+                }
+            }
+            buck_set_tmr_channel_value(curr_buck_period);
+        }
+        wk_delay_ms(1);
         /* add user code end 3 */
     }
 }
@@ -402,7 +467,7 @@ void adc_dma_handler()
 
     if ((adc_buffer[ADC_V_LLC_RANK_IDX] > LLC_OV_THRESHOLD) ||
         (adc_buffer[ADC_VO_TOTAL_RANK_IDX] > BUCK_OV_THRESHOLD)) {
-        // LLC输出过压或输入过压，禁用所有输出
+        // LLC输出过压或Buck过压，禁用所有输出
         disable_all_output();
     }
     // llc_volt_pid_update_sample();

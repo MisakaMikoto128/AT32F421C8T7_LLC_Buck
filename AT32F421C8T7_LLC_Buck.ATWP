@@ -76,6 +76,7 @@
             <ParametersSub name="DeadTimeValue" value="250"/>
             <ParametersSub name="OCMode_2" value="TMR_OUTPUT_CONTROL_PWM_MODE_A"/>
             <ParametersSub name="ChannelData_2" value="600"/>
+            <ParametersSub name="OCCPolarity_2" value="TMR_OUTPUT_ACTIVE_LOW"/>
         </Parameters>
     </TMR1>
     <TMR15>
