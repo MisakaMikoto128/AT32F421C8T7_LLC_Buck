@@ -37,8 +37,8 @@ typedef struct
 } Inc_PID_Q32_t, *pInc_PID_Q32_t;
 
 void Inc_PID_Q32_Init(pInc_PID_Q32_t self);
-void Inc_PID_Q32_Update_AddDelta(pInc_PID_Q32_t self);
-void Inc_PID_Q32_Update_SubDelta(pInc_PID_Q32_t self);
+int Inc_PID_Q32_Update_AddDelta(pInc_PID_Q32_t self);
+int Inc_PID_Q32_Update_SubDelta(pInc_PID_Q32_t self);
 #ifdef __cplusplus
 }
 #endif

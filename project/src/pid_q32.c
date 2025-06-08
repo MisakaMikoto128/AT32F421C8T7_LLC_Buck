@@ -29,13 +29,21 @@ void Inc_PID_Q32_Init(pInc_PID_Q32_t self)
     self->iFmin = 0; // 控制器输出最小值
 }
 
-void Inc_PID_Q32_Update_AddDelta(pInc_PID_Q32_t self)
+/**
+ * @brief Update the PID controller with the current target and sampling values,
+ *        and add the delta to the output.
+ *
+ * @param self Pointer to the PID controller instance.
+ * @return int Returns 1 if output was limited to max, -1 if limited to min, 0 otherwise.
+ */
+int Inc_PID_Q32_Update_AddDelta(pInc_PID_Q32_t self)
 {
-    // Calculate current error
-    self->iError  = self->iTarget - self->iSampling;
+    int res       = 0;
     int32_t delta = 0;
     int64_t F     = 0;
-    delta         = self->P * (self->iError - self->iLastError) +
+    // Calculate current error
+    self->iError = self->iTarget - self->iSampling;
+    delta        = self->P * (self->iError - self->iLastError) +
             self->I * self->iError +
             self->D * (self->iError - self->iPrevError);
 
@@ -50,15 +58,29 @@ void Inc_PID_Q32_Update_AddDelta(pInc_PID_Q32_t self)
     // Restrict to max/min
     if (F >= self->iFmax) {
         self->iF = self->iFmax;
+        res      = 1; // Indicate that the output was limited to max
     } else if (F <= self->iFmin) {
         self->iF = self->iFmin;
+        res      = -1; // Indicate that the output was limited to min
     } else {
         self->iF = F;
     }
+    return res; // Return the result of the update
 }
 
-void Inc_PID_Q32_Update_SubDelta(pInc_PID_Q32_t self)
+/**
+ * @brief Update the PID controller with the current target and sampling values,
+ *        and subtract the delta from the output.
+ *
+ * @param self Pointer to the PID controller instance.
+ * @return int Returns 1 if output was limited to max, -1 if limited to min, 0 otherwise.
+ */
+int Inc_PID_Q32_Update_SubDelta(pInc_PID_Q32_t self)
 {
+
+    int res       = 0;
+    int32_t delta = 0;
+    int64_t F     = 0;
     // Calculate current error
     self->iError  = self->iTarget - self->iSampling;
     int32_t delta = 0;
@@ -78,9 +100,12 @@ void Inc_PID_Q32_Update_SubDelta(pInc_PID_Q32_t self)
     // Restrict to max/min
     if (F >= self->iFmax) {
         self->iF = self->iFmax;
+        res      = 1; // Indicate that the output was limited to max
     } else if (F <= self->iFmin) {
         self->iF = self->iFmin;
+        res      = -1; // Indicate that the output was limited to min
     } else {
         self->iF = F;
     }
+    return res; // Return the result of the update
 }
