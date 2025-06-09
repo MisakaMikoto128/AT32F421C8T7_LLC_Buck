@@ -212,9 +212,9 @@ void user_pid_init()
     llc_volt_pid.iFmax                   = llc_curr_oc_limit_adc_value << PID_SHIFT; // 放大
     llc_volt_pid.iFmin                   = 0;
     llc_volt_pid.iF                      = llc_volt_pid.iFmin;
-    llc_volt_pid.P                       = 100 * 3;
+    llc_volt_pid.P                       = 100 * 2;
     llc_volt_pid.I                       = 1;
-    llc_volt_pid.D                       = 0;
+    llc_volt_pid.D                       = 1;
 
     llc_curr_freq_pid.iFmax = (LLC_PWM_PERIOD_UPPER_LIMIT + 1) << PID_SHIFT_14; // 放大 1200
     llc_curr_freq_pid.iFmin = 0 << PID_SHIFT_14;                                // 放大
@@ -266,7 +266,7 @@ void scope_init();
 
 int stage                    = 0;
 int protect_type             = 0;     // 0:无保护，1:输入过流保护，2:输出过压保护
-float llc_volt_target        = 30.0f; // LLC目标电压，单位V
+float llc_volt_target        = 16.0f; // LLC目标电压，单位V
 bool llc_volt_target_changed = false; // LLC目标电压是否改变
 int stage_debug              = 0;
 uint32_t interrupt_cnt       = 0;
@@ -435,6 +435,7 @@ void adc_dma_handler()
     llc_curr_freq_pid.iSampling       = filtered_adc[ADC_IIN_RANK_IDX];
     static int result                 = 0;
     static uint32_t tmr_channel_value = 0;
+    static uint32_t tmr_period_value = 0;
     switch (stage) {
         case 0:
             // 初始化阶段
@@ -458,12 +459,16 @@ void adc_dma_handler()
             // 将频率PID的输出目标频率的对应PERIOD寄存器值作为LLC PWM定时器的PERIOD寄存器值，默认为50%占空比
             if (llc_curr_freq_pid.iF >= (LLC_PWM_PERIOD_LOWER_LIMIT << PID_SHIFT_14)) {
                 // 大于，频率低于最大频率
-                llc_set_tmr_period((llc_curr_freq_pid.iF >> PID_SHIFT_14) - 1);
+                tmr_period_value = (llc_curr_freq_pid.iF >> PID_SHIFT_14) - 1;
+                llc_set_tmr_period(tmr_period_value);
                 // llc_set_tmr_period((300) - 1);
             } else {
                 // (300-0)  -> (50%-0%) -> (150-0)
                 tmr_period_value_set(TMR1, (300) - 1);
                 tmr_channel_value = (llc_curr_freq_pid.iF) >> (PID_SHIFT_14 + 1);
+                if (interrupt_cnt & 0x01) {
+                    tmr_channel_value += ((llc_curr_freq_pid.iF & (1UL << ((PID_SHIFT_14 + 1) - 1))) ? 1 : 0);
+                }
                 tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, tmr_channel_value);
             }
             break;
