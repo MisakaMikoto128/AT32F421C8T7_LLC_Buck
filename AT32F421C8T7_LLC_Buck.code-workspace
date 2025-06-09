@@ -6,7 +6,9 @@
     ],
     "settings": {
         "files.associations": {
-            "pid_fp32.h": "c"
+            "pid_fp32.h": "c",
+            "type_traits": "c",
+            "xtr1common": "c"
         }
     },
     "extensions": {}

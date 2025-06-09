@@ -121,13 +121,13 @@ float adc_to_target_scale[ADC_RANK_NUM] = {
 // LLC PWM频率上限
 #define LLC_FREQUENCY_UPPER_LIMIT 400000UL
 // LLC PWM频率下限
-#define LLC_FREQUENCY_LOWER_LIMIT 120000UL //116000UL
+#define LLC_FREQUENCY_LOWER_LIMIT 120000UL // 116000UL
 // LLC PWM周期寄存器上限
-#define LLC_PWM_PERIOD_UPPER_LIMIT ((TMR1_CLK_FREQ / LLC_FREQUENCY_LOWER_LIMIT) - 1) // 1200-1
+#define LLC_PWM_PERIOD_UPPER_LIMIT ((TMR1_CLK_FREQ / LLC_FREQUENCY_LOWER_LIMIT) - 1) // 1000-1
 // LLC PWM周期寄存器下限
 #define LLC_PWM_PERIOD_LOWER_LIMIT ((TMR1_CLK_FREQ / LLC_FREQUENCY_UPPER_LIMIT) - 1) // 300-1
 // LLC Duty比较器映射
-#define LLC_PWM_DUTY_MAP            (LLC_PWM_PERIOD_LOWER_LIMIT - 99)      // (50%-0%) -> (299-99)
+// (300-0)  -> (50%-0%) -> (150-0)
 // LLC 输入电流安全上限
 #define LLC_INPUT_CURRENT_UPPER_LIMIT 5.0f // 5A
 // LLC 输入电流下限
@@ -146,7 +146,6 @@ uint32_t LLC_OC_THRESHOLD = 2.5f * SCALE_LLC_CURR_TO_ADC_VALUE;
 // PID控制器实例
 Inc_PID_Q32_t llc_volt_pid;
 Inc_PID_Q32_t llc_curr_freq_pid;
-Inc_PID_Q32_t llc_curr_duty_cycle_pid;
 // PID控制器的缩放因子
 #define PID_SHIFT    12
 #define PID_SHIFT_14 14
@@ -208,29 +207,22 @@ void user_pid_init()
     // Init all fields as zero.
     Inc_PID_Q32_Init(&llc_volt_pid);
     Inc_PID_Q32_Init(&llc_curr_freq_pid);
-    Inc_PID_Q32_Init(&llc_curr_duty_cycle_pid);
 
     uint32_t llc_curr_oc_limit_adc_value = llc_curr_to_adc_value(LLC_INPUT_CURRENT_OC_LIMIT);
     llc_volt_pid.iFmax                   = llc_curr_oc_limit_adc_value << PID_SHIFT; // 放大
     llc_volt_pid.iFmin                   = 0;
     llc_volt_pid.iF                      = llc_volt_pid.iFmin;
-    llc_volt_pid.P                       = 200 * 3;
-    llc_volt_pid.I                       = 50 * 3;
+    llc_volt_pid.P                       = 100 * 3;
+    llc_volt_pid.I                       = 1;
     llc_volt_pid.D                       = 0;
 
-    llc_curr_freq_pid.iFmax = (LLC_PWM_PERIOD_UPPER_LIMIT + 1) << PID_SHIFT_14; // 放大
-    llc_curr_freq_pid.iFmin = (LLC_PWM_PERIOD_LOWER_LIMIT + 1) << PID_SHIFT_14; // 放大
-    llc_curr_freq_pid.iF    = llc_curr_freq_pid.iFmin;                          // 初始为最大频率
-    llc_curr_freq_pid.P     = 20 * 1;
-    llc_curr_freq_pid.I     = 500 * 1;
-    llc_curr_freq_pid.D     = 0;
-
-    llc_curr_duty_cycle_pid.iFmax = ((LLC_PWM_PERIOD_LOWER_LIMIT + 1) >> 1) << PID_SHIFT; // 放大
-    llc_curr_duty_cycle_pid.iFmin = 5 << PID_SHIFT;
-    llc_curr_duty_cycle_pid.iF    = llc_curr_duty_cycle_pid.iFmax * 0.0f; // 初始占空比
-    llc_curr_duty_cycle_pid.P     = 20 * 5;
-    llc_curr_duty_cycle_pid.I     = 200 * 5;
-    llc_curr_duty_cycle_pid.D     = 0;
+    llc_curr_freq_pid.iFmax = (LLC_PWM_PERIOD_UPPER_LIMIT + 1) << PID_SHIFT_14; // 放大 1200
+    llc_curr_freq_pid.iFmin = 0 << PID_SHIFT_14;                                // 放大
+    llc_curr_freq_pid.iF    = (LLC_PWM_PERIOD_LOWER_LIMIT + 1) << PID_SHIFT_14;
+    ; // 初始为最大频率
+    llc_curr_freq_pid.P = 200 * 1;
+    llc_curr_freq_pid.I = 50 * 1;
+    llc_curr_freq_pid.D = 0;
 }
 
 void llc_output_enable()
@@ -273,25 +265,17 @@ uint8_t buf[2048]; // 定义全局变量
 void scope_init();
 
 int stage                    = 0;
-int protect_type             = 0;      // 0:无保护，1:输入过流保护，2:输出过压保护
-float llc_volt_target        = 10.0f; // LLC目标电压，单位V
-bool llc_volt_target_changed = false;  // LLC目标电压是否改变
+int protect_type             = 0;     // 0:无保护，1:输入过流保护，2:输出过压保护
+float llc_volt_target        = 30.0f; // LLC目标电压，单位V
+bool llc_volt_target_changed = false; // LLC目标电压是否改变
 int stage_debug              = 0;
 uint32_t interrupt_cnt       = 0;
 uint32_t interrupt_pre_ticks = 0;
-int duty_switch_stage        = 3;
-int freq_switch_stage        = 2;
+
 void set_llc_volt_target_to_adc_value_q32(float target_llc_volt)
 {
     uint32_t value       = target_llc_volt * SCALE_LLC_VOLT_TO_ADC_VALUE;
     llc_volt_pid.iTarget = value;
-    if (target_llc_volt < 160) {
-        duty_switch_stage = 2;
-        freq_switch_stage = 2;
-    } else {
-        duty_switch_stage = 3;
-        freq_switch_stage = 3;
-    }
 }
 
 /* add user code end 0 */
@@ -445,15 +429,10 @@ void adc_dma_handler()
         protect_type = 1; // 设置保护类型为输入过流保护
     }
 
-    if (interrupt_cnt > 300) {
-        Inc_PID_Q32_Set_DeltaLimit(&llc_curr_duty_cycle_pid, INT32_MAX, INT16_MIN);
-    }
-
     // 更新PID采样值
     // 缩放见@user_pid_init
     llc_volt_pid.iSampling            = filtered_adc[ADC_V_LLC_RANK_IDX];
     llc_curr_freq_pid.iSampling       = filtered_adc[ADC_IIN_RANK_IDX];
-    llc_curr_duty_cycle_pid.iSampling = filtered_adc[ADC_IIN_RANK_IDX];
     static int result                 = 0;
     static uint32_t tmr_channel_value = 0;
     switch (stage) {
@@ -461,50 +440,31 @@ void adc_dma_handler()
             // 初始化阶段
             break;
         case 1:
-            // Inc_PID_Q32_Set_DeltaLimit(&llc_curr_duty_cycle_pid, 1, -1);
-            Inc_PID_Q32_Set_DeltaLimit(&llc_curr_freq_pid, 100, -100);
+            // Inc_PID_Q32_Set_DeltaLimit(&llc_volt_pid, 100, -100);
+            // Inc_PID_Q32_Set_DeltaLimit(&llc_curr_freq_pid, 100, -100);
             // 使能输出，但是为最低电流
             llc_output_enable();
+            // llc_curr_freq_pid.iTarget = llc_curr_to_adc_value(0.1f);
             stage = 2;
             break;
         case 2:
-            // 正常运行阶段，占空比PID控制
-            // 当前电压低于目标电压则会增大目标电流
-            Inc_PID_Q32_Update_AddDelta(&llc_volt_pid);
-            // 将电压PID的输出目标电流的对应ADC值作为频率PID的目标
-            llc_curr_duty_cycle_pid.iTarget = llc_volt_pid.iF >> PID_SHIFT;
-            // 当前电流低于目标电流则会增大通道寄存器值从而增大duty cycle，从而提高电流
-            result = Inc_PID_Q32_Update_AddDelta(&llc_curr_duty_cycle_pid);
-            // 将占空比PID的输出目标占空比对应的通道寄存器值作为LLC PWM定时器的通道寄存器值
-            tmr_channel_value = llc_curr_duty_cycle_pid.iF >> PID_SHIFT;
-
-            if (interrupt_cnt & 0x01) {
-// 奇数次中断，尝试将第一位小数四舍五入
-#if PID_SHIFT > 0
-                tmr_channel_value += ((llc_curr_duty_cycle_pid.iF & (1UL << (PID_SHIFT - 1))) ? 1 : 0);
-#endif
-            }
-            tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, tmr_channel_value);
-
-            if (result == 1) {
-                // 如果占空比PID的输出到达上限无法在增大输出占空比切换到频率PID控制
-                stage = duty_switch_stage;
-                stage_debug = duty_switch_stage;
-            }
-            break;
-        case 3:
             // 正常运行阶段，频率PID控制
             // 当前电压低于目标电压则会增大目标电流
             Inc_PID_Q32_Update_AddDelta(&llc_volt_pid);
             // 将电压PID的输出目标电流的对应ADC值作为频率PID的目标
             llc_curr_freq_pid.iTarget = llc_volt_pid.iF >> PID_SHIFT;
             // 当前电流低于目标电流则会增大PERIOD寄存器值从而降低频率，使得频率靠近谐振点从而提高电流
-            result = Inc_PID_Q32_Update_AddDelta(&llc_curr_freq_pid);
+            Inc_PID_Q32_Update_AddDelta(&llc_curr_freq_pid);
             // 将频率PID的输出目标频率的对应PERIOD寄存器值作为LLC PWM定时器的PERIOD寄存器值，默认为50%占空比
-            llc_set_tmr_period((llc_curr_freq_pid.iF >> PID_SHIFT_14) - 1);
-            if (result == -1) {
-                // 如果频率PID输出到达下限无法在增大输出频率则切换到占空比PID控制
-                stage = freq_switch_stage;
+            if (llc_curr_freq_pid.iF >= (LLC_PWM_PERIOD_LOWER_LIMIT << PID_SHIFT_14)) {
+                // 大于，频率低于最大频率
+                llc_set_tmr_period((llc_curr_freq_pid.iF >> PID_SHIFT_14) - 1);
+                // llc_set_tmr_period((300) - 1);
+            } else {
+                // (300-0)  -> (50%-0%) -> (150-0)
+                tmr_period_value_set(TMR1, (300) - 1);
+                tmr_channel_value = (llc_curr_freq_pid.iF) >> (PID_SHIFT_14 + 1);
+                tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, tmr_channel_value);
             }
             break;
         default:
@@ -578,4 +538,21 @@ void scope_init()
      * SEGGER_RTT_Write(1, &rtt_data, 16);
      */
 }
+
+/*
+
+            if (interrupt_cnt & 0x01) {
+// 奇数次中断，尝试将第一位小数四舍五入
+#if PID_SHIFT > 0
+                tmr_channel_value += ((llc_curr_duty_cycle_pid.iF & (1UL << (PID_SHIFT - 1))) ? 1 : 0);
+#endif
+            }
+            tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, tmr_channel_value);
+
+            if (result == 1) {
+                // 如果占空比PID的输出到达上限无法在增大输出占空比切换到频率PID控制
+                stage = duty_switch_stage;
+                stage_debug = duty_switch_stage;
+            }
+*/
 /* add user code end 4 */
