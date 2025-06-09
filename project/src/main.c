@@ -39,6 +39,7 @@
 #include <stdint.h>
 #include "pid_q32.h"
 #include <string.h>
+#include <stdlib.h>
 /* add user code end private includes */
 
 /* private typedef -----------------------------------------------------------*/
@@ -144,8 +145,8 @@ uint32_t LLC_OC_THRESHOLD = 2.5f * SCALE_LLC_CURR_TO_ADC_VALUE;
 Inc_PID_Q32_t llc_volt_pid;
 Inc_PID_Q32_t llc_curr_freq_pid;
 Inc_PID_Q32_t llc_curr_duty_cycle_pid;
-
-#define PID_SHIFT 12 // PID控制器的缩放因子
+// PID控制器的缩放因子
+#define PID_SHIFT 12 
 
 void inline llc_set_tmr_period(uint32_t period)
 {
@@ -216,22 +217,22 @@ void user_pid_init()
     llc_volt_pid.iFmax                   = llc_curr_oc_limit_adc_value << PID_SHIFT; // 放大
     llc_volt_pid.iFmin                   = 0;
     llc_volt_pid.iF                      = llc_volt_pid.iFmin;
-    llc_volt_pid.P                       = 108 * 3;
-    llc_volt_pid.I                       = 78 * 7;
+    llc_volt_pid.P                       = 200 * 3;
+    llc_volt_pid.I                       = 50 * 3;
     llc_volt_pid.D                       = 0;
 
     llc_curr_freq_pid.iFmax = LLC_PWM_PERIOD_UPPER_LIMIT << PID_SHIFT; // 放大
     llc_curr_freq_pid.iFmin = LLC_PWM_PERIOD_LOWER_LIMIT << PID_SHIFT; // 放大
     llc_curr_freq_pid.iF    = llc_curr_freq_pid.iFmin;                 // 初始为最大频率
-    llc_curr_freq_pid.P     = 108 * 3;
-    llc_curr_freq_pid.I     = 78 * 7;
+    llc_curr_freq_pid.P     = 200 * 3;
+    llc_curr_freq_pid.I     = 50 * 3;
     llc_curr_freq_pid.D     = 0;
 
-    llc_curr_duty_cycle_pid.iFmax = LLC_PWM_PERIOD_LOWER_LIMIT << PID_SHIFT; // 放大
+    llc_curr_duty_cycle_pid.iFmax = ((LLC_PWM_PERIOD_LOWER_LIMIT + 1) >> 1) << PID_SHIFT; // 放大
     llc_curr_duty_cycle_pid.iFmin = 0;
     llc_curr_duty_cycle_pid.iF    = llc_curr_duty_cycle_pid.iFmax * 0.0f; // 初始占空比
-    llc_curr_duty_cycle_pid.P     = 108 * 3;
-    llc_curr_duty_cycle_pid.I     = 78 * 7;
+    llc_curr_duty_cycle_pid.P     = 200 * 3;
+    llc_curr_duty_cycle_pid.I     = 50 * 3;
     llc_curr_duty_cycle_pid.D     = 0;
 }
 
@@ -284,10 +285,12 @@ void scope_init()
      */
 }
 
-static int stage             = 0;
-static int protect_type      = 0;      // 0:无保护，1:输入过流保护，2:输出过压保护
-float llc_volt_target        = 120.0f; // LLC目标电压，单位V
+int stage             = 0;
+int protect_type      = 0;      // 0:无保护，1:输入过流保护，2:输出过压保护
+float llc_volt_target        = 200.0f; // LLC目标电压，单位V
 bool llc_volt_target_changed = false;  // LLC目标电压是否改变
+int stage_debug = 0;
+uint32_t interrupt_cnt = 0;
 /* add user code end 0 */
 
 /**
@@ -350,8 +353,13 @@ int main(void)
 
     // 关闭所有PWM输出，避免暂态
     disable_all_output();
+    // 启动定时器
+    tmr_counter_enable(TMR15, TRUE);
+    tmr_counter_enable(TMR1, TRUE);
     // ADC触发源使能
     tmr_channel_enable(TMR15, TMR_SELECT_CHANNEL_1, TRUE);
+    // 同样的Buck置完再频率后再使能驱动PWM输出，消除暂态
+    tmr_output_enable(TMR15, TRUE); // 要使能output，不然无法触发ADC采集。
     // 延时一段时间获取ADC初始值，用于校准霍尔电流传感器
     wk_delay_ms(200);
     // 保存初始值
@@ -360,7 +368,7 @@ int main(void)
     user_pid_init();
     // 设置过流保护阈值
     LLC_OC_THRESHOLD = llc_curr_to_adc_value(LLC_INPUT_CURRENT_UPPER_LIMIT);
-    while (1);
+
     dma_interrupt_enable(DMA1_CHANNEL1, DMA_FDT_INT, TRUE);
     dma_interrupt_enable(DMA1_CHANNEL1, DMA_HDT_INT, TRUE);
     dma_interrupt_enable(DMA1_CHANNEL1, DMA_DTERR_INT, TRUE);
@@ -373,11 +381,8 @@ int main(void)
     buck_set_tmr_channel_value(0);
     // 设置完LLC的频率后再使能LLC的驱动PWM输出，消除暂态
     tmr_output_enable(TMR1, TRUE);
-    // 同样的Buck置完再频率后再使能驱动PWM输出，消除暂态
-    tmr_output_enable(TMR15, TRUE);
-    // 启动定时器
-    tmr_counter_enable(TMR15, TRUE);
-    tmr_counter_enable(TMR1, TRUE);
+    // 启动LLC输出
+    llc_output_enable();
     // 设置LLC目标电压
     set_llc_volt_target_to_adc_value_q32(llc_volt_target);
     // 设置阶段为1，表示初始化完成
@@ -399,28 +404,11 @@ int main(void)
 }
 
 /* add user code begin 4 */
-// 内联汇编实现
-static inline void udiv_mod(uint32_t dividend, uint32_t divisor, uint32_t *quotient, uint32_t *remainder)
-{
-    __asm volatile(
-        "udiv %0, %2, %3\n\t"    // 商
-        "mls %1, %0, %3, %2\n\t" // 余数 = dividend - quotient * divisor
-        : "=r"(*quotient), "=r"(*remainder)
-        : "r"(dividend), "r"(divisor)
-        : "cc");
-}
-
-#include <stdlib.h>
-
-void calculate_divmod(int dividend, int divisor, int *quot, int *rem)
-{
-    div_t result = div(dividend, divisor);
-    *quot        = result.quot;
-    *rem         = result.rem;
-}
 
 void adc_dma_handler()
 {
+    interrupt_cnt++;
+
 #define FILTER_SHIFT 3 // 相当于除以8的滤波系数
     for (int i = 0; i < ADC_RANK_NUM; i++) {
         // 定点数一阶滤波: y[n] = (x[n] + 7*y[n-1]) / 8
@@ -428,12 +416,12 @@ void adc_dma_handler()
     }
 
     // 将ADC值转换为电压、电流值
-    votlage_debug[ADC_VIN_RANK_IDX]      = adc_buffer[ADC_VIN_RANK_IDX] * adc_to_target_scale[ADC_VIN_RANK_IDX];
-    votlage_debug[ADC_IO_RANK_IDX]       = (adc_buffer[ADC_IO_RANK_IDX] - adc_buffer_init[ADC_IO_RANK_IDX]) * adc_to_target_scale[ADC_IO_RANK_IDX];
-    votlage_debug[ADC_VO_TOTAL_RANK_IDX] = adc_buffer[ADC_VO_TOTAL_RANK_IDX] * adc_to_target_scale[ADC_VO_TOTAL_RANK_IDX];
-    votlage_debug[ADC_VO_MID_RANK_IDX]   = adc_buffer[ADC_VO_MID_RANK_IDX] * adc_to_target_scale[ADC_VO_MID_RANK_IDX];
-    votlage_debug[ADC_IIN_RANK_IDX]      = (adc_buffer[ADC_IIN_RANK_IDX] - adc_buffer_init[ADC_IIN_RANK_IDX]) * adc_to_target_scale[ADC_IIN_RANK_IDX];
-    votlage_debug[ADC_V_LLC_RANK_IDX]    = adc_buffer[ADC_V_LLC_RANK_IDX] * adc_to_target_scale[ADC_V_LLC_RANK_IDX];
+    votlage_debug[ADC_VIN_RANK_IDX]      = filtered_adc[ADC_VIN_RANK_IDX] * adc_to_target_scale[ADC_VIN_RANK_IDX];
+    votlage_debug[ADC_IO_RANK_IDX]       = (filtered_adc[ADC_IO_RANK_IDX] - adc_buffer_init[ADC_IO_RANK_IDX]) * adc_to_target_scale[ADC_IO_RANK_IDX];
+    votlage_debug[ADC_VO_TOTAL_RANK_IDX] = filtered_adc[ADC_VO_TOTAL_RANK_IDX] * adc_to_target_scale[ADC_VO_TOTAL_RANK_IDX];
+    votlage_debug[ADC_VO_MID_RANK_IDX]   = filtered_adc[ADC_VO_MID_RANK_IDX] * adc_to_target_scale[ADC_VO_MID_RANK_IDX];
+    votlage_debug[ADC_IIN_RANK_IDX]      = (filtered_adc[ADC_IIN_RANK_IDX] - adc_buffer_init[ADC_IIN_RANK_IDX]) * adc_to_target_scale[ADC_IIN_RANK_IDX];
+    votlage_debug[ADC_V_LLC_RANK_IDX]    = filtered_adc[ADC_V_LLC_RANK_IDX] * adc_to_target_scale[ADC_V_LLC_RANK_IDX];
     // 定点数计算：adc_value * scale_factor >> 15
     // votlage_debug[i] = (adc_buffer[i] * VOLTAGE_SCALE_FACTOR_Q15 + 0x4000) >> 15;
 
@@ -452,10 +440,11 @@ void adc_dma_handler()
 
     // 更新PID采样值
     // 缩放见@user_pid_init
-    llc_volt_pid.iSampling            = adc_buffer[ADC_V_LLC_RANK_IDX];
-    llc_curr_freq_pid.iSampling       = adc_buffer[ADC_IIN_RANK_IDX];
-    llc_curr_duty_cycle_pid.iSampling = adc_buffer[ADC_IIN_RANK_IDX];
-    int result                        = 0;
+    llc_volt_pid.iSampling            = filtered_adc[ADC_V_LLC_RANK_IDX];
+    llc_curr_freq_pid.iSampling       = filtered_adc[ADC_IIN_RANK_IDX];
+    llc_curr_duty_cycle_pid.iSampling = filtered_adc[ADC_IIN_RANK_IDX];
+    static int result                        = 0;
+    static uint32_t tmr_channel_value = 0;
     switch (stage) {
         case 0:
             // 初始化阶段
@@ -472,12 +461,22 @@ void adc_dma_handler()
             // 将电压PID的输出目标电流的对应ADC值作为频率PID的目标
             llc_curr_duty_cycle_pid.iTarget = llc_volt_pid.iF >> PID_SHIFT;
             // 当前电流低于目标电流则会增大通道寄存器值从而增大duty cycle，从而提高电流
-            result = Inc_PID_Q32_Update_AddDelta(&llc_curr_freq_pid);
+            result = Inc_PID_Q32_Update_AddDelta(&llc_curr_duty_cycle_pid);
             // 将占空比PID的输出目标占空比对应的通道寄存器值作为LLC PWM定时器的通道寄存器值
-            tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, llc_curr_duty_cycle_pid.iF >> PID_SHIFT);
+            tmr_channel_value = llc_curr_duty_cycle_pid.iF >> PID_SHIFT;
+            if (interrupt_cnt & 0x01)
+            {
+                // 奇数次中断，尝试将第一位小数四舍五入
+                #if PID_SHIFT > 0
+                tmr_channel_value += ((llc_curr_duty_cycle_pid.iF & (1UL << (PID_SHIFT - 1))) ? 1 : 0);
+                #endif
+            }
+            tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, tmr_channel_value);
+
             if (result == 1) {
                 // 如果占空比PID的输出到达上限无法在增大输出占空比切换到频率PID控制
-                stage = 3;
+                // stage = 3;
+                stage_debug = 3;
             }
             break;
         case 3:
@@ -537,4 +536,21 @@ void DMA1_Channel1_IRQHandler(void)
     /* add user code end DMA1_Channel1_IRQ 1 */
 }
 
+// 内联汇编实现
+static inline void udiv_mod(uint32_t dividend, uint32_t divisor, uint32_t *quotient, uint32_t *remainder)
+{
+    __asm volatile(
+        "udiv %0, %2, %3\n\t"    // 商
+        "mls %1, %0, %3, %2\n\t" // 余数 = dividend - quotient * divisor
+        : "=r"(*quotient), "=r"(*remainder)
+        : "r"(dividend), "r"(divisor)
+        : "cc");
+}
+
+void calculate_divmod(int dividend, int divisor, int *quot, int *rem)
+{
+    div_t result = div(dividend, divisor);
+    *quot        = result.quot;
+    *rem         = result.rem;
+}
 /* add user code end 4 */
