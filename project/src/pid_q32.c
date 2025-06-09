@@ -27,6 +27,10 @@ void Inc_PID_Q32_Init(pInc_PID_Q32_t self)
     self->iF    = 0; // 控制器输出值
     self->iFmax = 0; // 控制器输出最大值
     self->iFmin = 0; // 控制器输出最小值
+
+    // delta 限制初始化为int32_t最大/最小值
+    self->maxDelta = INT32_MAX; // PID增量限制
+    self->minDelta = INT32_MIN; // PID减量限制
 }
 
 /**
@@ -52,6 +56,14 @@ int Inc_PID_Q32_Update_AddDelta(pInc_PID_Q32_t self)
     self->iPrevError = self->iLastError;
     // Update last error
     self->iLastError = self->iError;
+
+    if (delta > self->maxDelta)
+    {
+        delta = self->maxDelta;
+    }else if (delta < self->minDelta)
+    {
+        delta = self->minDelta;
+    }
 
     F = self->iF + delta;
 
@@ -93,6 +105,14 @@ int Inc_PID_Q32_Update_SubDelta(pInc_PID_Q32_t self)
     // Update last error
     self->iLastError = self->iError;
 
+    if (delta > self->maxDelta)
+    {
+        delta = self->maxDelta;
+    }else if (delta < self->minDelta)
+    {
+        delta = self->minDelta;
+    }
+
     F = self->iF - delta;
 
     // Restrict to max/min
@@ -106,4 +126,10 @@ int Inc_PID_Q32_Update_SubDelta(pInc_PID_Q32_t self)
         self->iF = F;
     }
     return res; // Return the result of the update
+}
+
+void Inc_PID_Q32_Set_DeltaLimit(pInc_PID_Q32_t self, int32_t maxDelta, int32_t minDelta)
+{
+    self->maxDelta = maxDelta;
+    self->minDelta = minDelta;
 }

@@ -121,11 +121,13 @@ float adc_to_target_scale[ADC_RANK_NUM] = {
 // LLC PWM频率上限
 #define LLC_FREQUENCY_UPPER_LIMIT 400000UL
 // LLC PWM频率下限
-#define LLC_FREQUENCY_LOWER_LIMIT 100000UL
+#define LLC_FREQUENCY_LOWER_LIMIT 120000UL //116000UL
 // LLC PWM周期寄存器上限
 #define LLC_PWM_PERIOD_UPPER_LIMIT ((TMR1_CLK_FREQ / LLC_FREQUENCY_LOWER_LIMIT) - 1) // 1200-1
 // LLC PWM周期寄存器下限
 #define LLC_PWM_PERIOD_LOWER_LIMIT ((TMR1_CLK_FREQ / LLC_FREQUENCY_UPPER_LIMIT) - 1) // 300-1
+// LLC Duty比较器映射
+#define LLC_PWM_DUTY_MAP            (LLC_PWM_PERIOD_LOWER_LIMIT - 99)      // (50%-0%) -> (299-99)
 // LLC 输入电流安全上限
 #define LLC_INPUT_CURRENT_UPPER_LIMIT 5.0f // 5A
 // LLC 输入电流下限
@@ -146,7 +148,8 @@ Inc_PID_Q32_t llc_volt_pid;
 Inc_PID_Q32_t llc_curr_freq_pid;
 Inc_PID_Q32_t llc_curr_duty_cycle_pid;
 // PID控制器的缩放因子
-#define PID_SHIFT 12 
+#define PID_SHIFT    12
+#define PID_SHIFT_14 14
 
 void inline llc_set_tmr_period(uint32_t period)
 {
@@ -200,12 +203,6 @@ uint32_t llc_curr_to_adc_value(float curr)
     return (uint32_t)(curr * SCALE_LLC_CURR_TO_ADC_VALUE + adc_buffer_init[ADC_IIN_RANK_IDX]);
 }
 
-void set_llc_volt_target_to_adc_value_q32(float target_llc_volt)
-{
-    uint32_t value       = target_llc_volt * SCALE_LLC_VOLT_TO_ADC_VALUE;
-    llc_volt_pid.iTarget = value;
-}
-
 void user_pid_init()
 {
     // Init all fields as zero.
@@ -221,18 +218,18 @@ void user_pid_init()
     llc_volt_pid.I                       = 50 * 3;
     llc_volt_pid.D                       = 0;
 
-    llc_curr_freq_pid.iFmax = LLC_PWM_PERIOD_UPPER_LIMIT << PID_SHIFT; // 放大
-    llc_curr_freq_pid.iFmin = LLC_PWM_PERIOD_LOWER_LIMIT << PID_SHIFT; // 放大
-    llc_curr_freq_pid.iF    = llc_curr_freq_pid.iFmin;                 // 初始为最大频率
-    llc_curr_freq_pid.P     = 200 * 3;
-    llc_curr_freq_pid.I     = 50 * 3;
+    llc_curr_freq_pid.iFmax = (LLC_PWM_PERIOD_UPPER_LIMIT + 1) << PID_SHIFT_14; // 放大
+    llc_curr_freq_pid.iFmin = (LLC_PWM_PERIOD_LOWER_LIMIT + 1) << PID_SHIFT_14; // 放大
+    llc_curr_freq_pid.iF    = llc_curr_freq_pid.iFmin;                          // 初始为最大频率
+    llc_curr_freq_pid.P     = 20 * 1;
+    llc_curr_freq_pid.I     = 500 * 1;
     llc_curr_freq_pid.D     = 0;
 
     llc_curr_duty_cycle_pid.iFmax = ((LLC_PWM_PERIOD_LOWER_LIMIT + 1) >> 1) << PID_SHIFT; // 放大
-    llc_curr_duty_cycle_pid.iFmin = 0;
+    llc_curr_duty_cycle_pid.iFmin = 5 << PID_SHIFT;
     llc_curr_duty_cycle_pid.iF    = llc_curr_duty_cycle_pid.iFmax * 0.0f; // 初始占空比
-    llc_curr_duty_cycle_pid.P     = 200 * 3;
-    llc_curr_duty_cycle_pid.I     = 50 * 3;
+    llc_curr_duty_cycle_pid.P     = 20 * 5;
+    llc_curr_duty_cycle_pid.I     = 200 * 5;
     llc_curr_duty_cycle_pid.D     = 0;
 }
 
@@ -273,24 +270,30 @@ void enable_all_output()
 #include "log.h"
 uint8_t buf[2048]; // 定义全局变量
 
-void scope_init()
-{
-    SEGGER_RTT_ConfigUpBuffer(1, "JScope_u2u2u2u2u2u2", buf, 2048, SEGGER_RTT_MODE_NO_BLOCK_SKIP); // 初始化RTT模块
+void scope_init();
 
-    /**
-     * uint16_t rtt_data[8]={0};
-     * ...
-     * * // 发送数据到JScope,16字节
-     * SEGGER_RTT_Write(1, &rtt_data, 16);
-     */
+int stage                    = 0;
+int protect_type             = 0;      // 0:无保护，1:输入过流保护，2:输出过压保护
+float llc_volt_target        = 10.0f; // LLC目标电压，单位V
+bool llc_volt_target_changed = false;  // LLC目标电压是否改变
+int stage_debug              = 0;
+uint32_t interrupt_cnt       = 0;
+uint32_t interrupt_pre_ticks = 0;
+int duty_switch_stage        = 3;
+int freq_switch_stage        = 2;
+void set_llc_volt_target_to_adc_value_q32(float target_llc_volt)
+{
+    uint32_t value       = target_llc_volt * SCALE_LLC_VOLT_TO_ADC_VALUE;
+    llc_volt_pid.iTarget = value;
+    if (target_llc_volt < 160) {
+        duty_switch_stage = 2;
+        freq_switch_stage = 2;
+    } else {
+        duty_switch_stage = 3;
+        freq_switch_stage = 3;
+    }
 }
 
-int stage             = 0;
-int protect_type      = 0;      // 0:无保护，1:输入过流保护，2:输出过压保护
-float llc_volt_target        = 200.0f; // LLC目标电压，单位V
-bool llc_volt_target_changed = false;  // LLC目标电压是否改变
-int stage_debug = 0;
-uint32_t interrupt_cnt = 0;
 /* add user code end 0 */
 
 /**
@@ -347,9 +350,9 @@ int main(void)
     wk_tmr15_init();
 
     /* add user code begin 2 */
-    scope_init();
-    // ulog_init_user();
-    // ULOG_INFO("AT32F421 WK Demo Start");
+    // scope_init();
+    ulog_init_user();
+    ULOG_INFO("AT32F421 WK Demo Start");
 
     // 关闭所有PWM输出，避免暂态
     disable_all_output();
@@ -393,7 +396,10 @@ int main(void)
         /* add user code begin 3 */
         // 发送数据到JScope,12字节
         // SEGGER_RTT_Write(1, &rtt_data, sizeof(rtt_data));
-        wk_delay_ms(1);
+        wk_delay_ms(200);
+        ULOG_INFO("I %f,reg %u,mid %d", votlage_debug[ADC_IIN_RANK_IDX],
+                  adc_buffer[ADC_IIN_RANK_IDX], adc_buffer_init[ADC_IIN_RANK_IDX]);
+
         if (llc_volt_target_changed) {
             // 如果LLC目标电压改变，更新PID目标
             set_llc_volt_target_to_adc_value_q32(llc_volt_target);
@@ -404,6 +410,7 @@ int main(void)
 }
 
 /* add user code begin 4 */
+#define TICK_COUNT_VALUE (SysTick->VAL)
 
 void adc_dma_handler()
 {
@@ -438,18 +445,24 @@ void adc_dma_handler()
         protect_type = 1; // 设置保护类型为输入过流保护
     }
 
+    if (interrupt_cnt > 300) {
+        Inc_PID_Q32_Set_DeltaLimit(&llc_curr_duty_cycle_pid, INT32_MAX, INT16_MIN);
+    }
+
     // 更新PID采样值
     // 缩放见@user_pid_init
     llc_volt_pid.iSampling            = filtered_adc[ADC_V_LLC_RANK_IDX];
     llc_curr_freq_pid.iSampling       = filtered_adc[ADC_IIN_RANK_IDX];
     llc_curr_duty_cycle_pid.iSampling = filtered_adc[ADC_IIN_RANK_IDX];
-    static int result                        = 0;
+    static int result                 = 0;
     static uint32_t tmr_channel_value = 0;
     switch (stage) {
         case 0:
             // 初始化阶段
             break;
         case 1:
+            // Inc_PID_Q32_Set_DeltaLimit(&llc_curr_duty_cycle_pid, 1, -1);
+            Inc_PID_Q32_Set_DeltaLimit(&llc_curr_freq_pid, 100, -100);
             // 使能输出，但是为最低电流
             llc_output_enable();
             stage = 2;
@@ -464,19 +477,19 @@ void adc_dma_handler()
             result = Inc_PID_Q32_Update_AddDelta(&llc_curr_duty_cycle_pid);
             // 将占空比PID的输出目标占空比对应的通道寄存器值作为LLC PWM定时器的通道寄存器值
             tmr_channel_value = llc_curr_duty_cycle_pid.iF >> PID_SHIFT;
-            if (interrupt_cnt & 0x01)
-            {
-                // 奇数次中断，尝试将第一位小数四舍五入
-                #if PID_SHIFT > 0
+
+            if (interrupt_cnt & 0x01) {
+// 奇数次中断，尝试将第一位小数四舍五入
+#if PID_SHIFT > 0
                 tmr_channel_value += ((llc_curr_duty_cycle_pid.iF & (1UL << (PID_SHIFT - 1))) ? 1 : 0);
-                #endif
+#endif
             }
             tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, tmr_channel_value);
 
             if (result == 1) {
                 // 如果占空比PID的输出到达上限无法在增大输出占空比切换到频率PID控制
-                // stage = 3;
-                stage_debug = 3;
+                stage = duty_switch_stage;
+                stage_debug = duty_switch_stage;
             }
             break;
         case 3:
@@ -488,10 +501,10 @@ void adc_dma_handler()
             // 当前电流低于目标电流则会增大PERIOD寄存器值从而降低频率，使得频率靠近谐振点从而提高电流
             result = Inc_PID_Q32_Update_AddDelta(&llc_curr_freq_pid);
             // 将频率PID的输出目标频率的对应PERIOD寄存器值作为LLC PWM定时器的PERIOD寄存器值，默认为50%占空比
-            llc_set_tmr_period(llc_curr_freq_pid.iF >> PID_SHIFT);
+            llc_set_tmr_period((llc_curr_freq_pid.iF >> PID_SHIFT_14) - 1);
             if (result == -1) {
                 // 如果频率PID输出到达下限无法在增大输出频率则切换到占空比PID控制
-                stage = 2;
+                stage = freq_switch_stage;
             }
             break;
         default:
@@ -552,5 +565,17 @@ void calculate_divmod(int dividend, int divisor, int *quot, int *rem)
     div_t result = div(dividend, divisor);
     *quot        = result.quot;
     *rem         = result.rem;
+}
+
+void scope_init()
+{
+    SEGGER_RTT_ConfigUpBuffer(1, "JScope_u2u2u2u2u2u2", buf, 2048, SEGGER_RTT_MODE_NO_BLOCK_SKIP); // 初始化RTT模块
+
+    /**
+     * uint16_t rtt_data[8]={0};
+     * ...
+     * * // 发送数据到JScope,16字节
+     * SEGGER_RTT_Write(1, &rtt_data, 16);
+     */
 }
 /* add user code end 4 */

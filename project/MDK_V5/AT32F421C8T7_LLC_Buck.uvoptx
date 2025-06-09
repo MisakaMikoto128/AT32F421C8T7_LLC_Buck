@@ -170,6 +170,11 @@
           <WinNumber>1</WinNumber>
           <ItemText>filtered_adc,0x0A</ItemText>
         </Ww>
+        <Ww>
+          <count>4</count>
+          <WinNumber>1</WinNumber>
+          <ItemText>stage_debug</ItemText>
+        </Ww>
       </WatchWindow1>
       <WatchWindow2>
         <Ww>
@@ -180,7 +185,7 @@
         <Ww>
           <count>1</count>
           <WinNumber>2</WinNumber>
-          <ItemText>llc_curr_freq_pid</ItemText>
+          <ItemText>llc_curr_freq_pid,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>2</count>
@@ -191,6 +196,16 @@
           <count>3</count>
           <WinNumber>2</WinNumber>
           <ItemText>protect_type,0x0A</ItemText>
+        </Ww>
+        <Ww>
+          <count>4</count>
+          <WinNumber>2</WinNumber>
+          <ItemText>llc_volt_target</ItemText>
+        </Ww>
+        <Ww>
+          <count>5</count>
+          <WinNumber>2</WinNumber>
+          <ItemText>llc_volt_target_changed,0x0A</ItemText>
         </Ww>
       </WatchWindow2>
       <Tracepoint>
