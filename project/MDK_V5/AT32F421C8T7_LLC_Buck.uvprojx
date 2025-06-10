@@ -439,6 +439,11 @@
               <FileType>1</FileType>
               <FilePath>..\src\pid_q32.c</FilePath>
             </File>
+            <File>
+              <FileName>wk_usart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\src\wk_usart.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -503,6 +508,11 @@
               <FileName>at32f421_scfg.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\libraries\drivers\src\at32f421_scfg.c</FilePath>
+            </File>
+            <File>
+              <FileName>at32f421_usart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\libraries\drivers\src\at32f421_usart.c</FilePath>
             </File>
           </Files>
         </Group>
