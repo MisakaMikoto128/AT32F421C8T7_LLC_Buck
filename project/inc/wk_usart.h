@@ -1,8 +1,8 @@
 /* add user code begin Header */
 /**
   **************************************************************************
-  * @file     at32f421_int.h
-  * @brief    header file of main interrupt service routines.
+  * @file     wk_usart.h
+  * @brief    header file of work bench config
   **************************************************************************
   *                       Copyright notice & Disclaimer
   *
@@ -24,23 +24,23 @@
   */
 /* add user code end Header */
 
-/* define to prevent recursive inclusion -------------------------------------*/
-#ifndef __AT32F421_INT_H
-#define __AT32F421_INT_H
+/* define to prevent recursive inclusion -----------------------------------*/
+#ifndef __WK_USART_H
+#define __WK_USART_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* includes ------------------------------------------------------------------*/
-#include "at32f421.h"
+/* includes -----------------------------------------------------------------------*/
+#include "at32f421_wk_config.h"
 
-/* private includes ----------------------------------------------------------*/
+/* private includes -------------------------------------------------------------*/
 /* add user code begin private includes */
 
 /* add user code end private includes */
 
-/* exported types ------------------------------------------------------------*/
+/* exported types -------------------------------------------------------------*/
 /* add user code begin exported types */
 
 /* add user code end exported types */
@@ -56,22 +56,10 @@ extern "C" {
 /* add user code end exported macro */
 
 /* exported functions ------------------------------------------------------- */
-void NMI_Handler(void);
-void HardFault_Handler(void);
-void MemManage_Handler(void);
-void BusFault_Handler(void);
-void UsageFault_Handler(void);
-void SVC_Handler(void);
-void DebugMon_Handler(void);
-void PendSV_Handler(void);
 
-void SysTick_Handler(void);
+  /* init usart2 function. */
+  void wk_usart2_init(void);
 
-void PVM_IRQHandler(void);
-void DMA1_Channel1_IRQHandler(void);
-void TMR1_CH_IRQHandler(void);
-void TMR15_GLOBAL_IRQHandler(void);
-void USART2_IRQHandler(void);
 /* add user code begin exported functions */
 
 /* add user code end exported functions */

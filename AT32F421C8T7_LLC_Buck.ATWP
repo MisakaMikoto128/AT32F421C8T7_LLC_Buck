@@ -72,10 +72,12 @@
         </Mode>
         <Parameters>
             <ParametersSub name="Period" value="1199"/>
+            <ParametersSub name="PeriodBufferEnable" value="TRUE"/>
             <ParametersSub name="DeadTime" value="30"/>
             <ParametersSub name="DeadTimeValue" value="250"/>
+            <ParametersSub name="OC1Buffer" value="TRUE"/>
             <ParametersSub name="OCMode_2" value="TMR_OUTPUT_CONTROL_PWM_MODE_A"/>
-            <ParametersSub name="ChannelData_2" value="600"/>
+            <ParametersSub name="OC2Buffer" value="TRUE"/>
             <ParametersSub name="OCCPolarity_2" value="TMR_OUTPUT_ACTIVE_LOW"/>
         </Parameters>
     </TMR1>
@@ -93,6 +95,17 @@
             <ParametersSub name="ChannelData_2" value="600"/>
         </Parameters>
     </TMR15>
+    <USART2>
+        <Mode>
+            <ModeSub name="Mode" value="Asynchronous"/>
+        </Mode>
+        <Parameters>
+            <ParametersSub name="BaudRate" value="9600"/>
+            <ParametersSub name="RealBaudRate" value="9600"/>
+            <ParametersSub name="Databitnum" value="USART_DATA_9BITS"/>
+            <ParametersSub name="Parityselection" value="USART_PARITY_ODD"/>
+        </Parameters>
+    </USART2>
     <DMA>
         <ADC1>
             <ParametersSub name="Instance" value="DMA1_Channel1"/>
@@ -101,14 +114,15 @@
     </DMA>
     <NVIC>
         <SysTick_Handler>1;15;0;0;0</SysTick_Handler>
-        <PVM_IRQHandler>1;0;0;0;0</PVM_IRQHandler>
+        <PVM_IRQHandler>1;1;0;0;0</PVM_IRQHandler>
         <FLASH_IRQHandler>0;0;0;0;0</FLASH_IRQHandler>
         <CRM_IRQHandler>0;0;0;0;0</CRM_IRQHandler>
         <DMA1_Channel1_IRQHandler>1;0;0;0;0</DMA1_Channel1_IRQHandler>
         <ADC1_CMP_IRQHandler>0;0;0;0;0</ADC1_CMP_IRQHandler>
         <TMR1_BRK_OVF_TRG_HALL_IRQHandler>0;0;0;0;0</TMR1_BRK_OVF_TRG_HALL_IRQHandler>
-        <TMR1_CH_IRQHandler>1;0;0;0;0</TMR1_CH_IRQHandler>
-        <TMR15_GLOBAL_IRQHandler>1;0;0;0;0</TMR15_GLOBAL_IRQHandler>
+        <TMR1_CH_IRQHandler>1;1;0;0;0</TMR1_CH_IRQHandler>
+        <TMR15_GLOBAL_IRQHandler>1;1;0;0;0</TMR15_GLOBAL_IRQHandler>
+        <USART2_IRQHandler>1;1;0;0;0</USART2_IRQHandler>
     </NVIC>
     <GPIO>
         <Signal SignalName="TMR1_CH2C" PinName="PB14">
@@ -119,10 +133,6 @@
         </Signal>
         <Signal SignalName="TMR1_CH2" PinName="PA9">
             <Parameters name="GPIO_DriverCapability" value="GPIO_DRIVE_STRENGTH_STRONGER"/>
-        </Signal>
-        <Signal SignalName="GPIO_Output" PinName="PA15">
-            <Parameters name="GPIO_DriverCapability" value="GPIO_DRIVE_STRENGTH_STRONGER"/>
-            <Parameters name="Label" value="IO2"/>
         </Signal>
         <Signal SignalName="GPIO_Output" PinName="PB3">
             <Parameters name="GPIO_DriverCapability" value="GPIO_DRIVE_STRENGTH_STRONGER"/>
@@ -164,10 +174,11 @@
         <PinSub pinname="PB2" signalname="ADC1_IN10" signaltype="3"/>
         <PinSub pinname="PB14" signalname="TMR1_CH2C" signaltype="3"/>
         <PinSub pinname="PB15" signalname="TMR15_CH2" signaltype="3"/>
+        <PinSub pinname="PA8" signalname="USART2_TX" signaltype="2"/>
         <PinSub pinname="PA9" signalname="TMR1_CH2" signaltype="3"/>
         <PinSub pinname="PA13" signalname="DEBUG_SWDIO" signaltype="2"/>
         <PinSub pinname="PA14" signalname="DEBUG_SWCLK" signaltype="2"/>
-        <PinSub pinname="PA15" signalname="GPIO_Output" signaltype="3"/>
+        <PinSub pinname="PA15" signalname="USART2_RX" signaltype="3"/>
         <PinSub pinname="PB3" signalname="GPIO_Output" signaltype="3"/>
     </PINInfo>
     <ProjectInfomation>

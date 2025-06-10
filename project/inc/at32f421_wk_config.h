@@ -80,8 +80,6 @@ extern "C" {
 /* add user code end dma define */
 
 /* Private defines -------------------------------------------------------------*/
-#define IO2_PIN    GPIO_PINS_15
-#define IO2_GPIO_PORT    GPIOA
 #define IO1_PIN    GPIO_PINS_3
 #define IO1_GPIO_PORT    GPIOB
 

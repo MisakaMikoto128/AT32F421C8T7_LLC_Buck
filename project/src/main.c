@@ -30,6 +30,7 @@
 #include "wk_crc.h"
 #include "wk_pwc.h"
 #include "wk_tmr.h"
+#include "wk_usart.h"
 #include "wk_dma.h"
 #include "wk_gpio.h"
 #include "wk_system.h"
@@ -320,6 +321,9 @@ int main(void)
                           DMA1_CHANNEL1_MEMORY_BASE_ADDR,
                           DMA1_CHANNEL1_BUFFER_SIZE);
     dma_channel_enable(DMA1_CHANNEL1, TRUE);
+
+    /* init usart2 function. */
+    wk_usart2_init();
 
     /* init crc function. */
     wk_crc_init();
