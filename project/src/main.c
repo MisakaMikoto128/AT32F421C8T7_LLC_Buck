@@ -312,7 +312,7 @@ float get_llc_voit_from_adc_value()
 }
 
 #define COUNTOF(a)            (sizeof(a) / sizeof(*(a)))
-#define USART2_TX_BUFFER_SIZE (6)
+#define USART2_TX_BUFFER_SIZE (7)
 #define USART2_RX_BUFFER_SIZE (20)
 uint8_t usart2_tx_buffer[USART2_TX_BUFFER_SIZE];
 uint8_t usart2_rx_buffer[USART2_RX_BUFFER_SIZE];
@@ -321,8 +321,18 @@ volatile uint8_t usart2_rx_counter = 0x00;
 uint8_t usart2_tx_buffer_size      = USART2_TX_BUFFER_SIZE;
 uint8_t usart2_rx_buffer_size      = USART2_RX_BUFFER_SIZE;
 bool usart2_rx_idle_flag           = false;
-#define TICK_COUNT_VALUE (SysTick->VAL)
 
+#define USART1_TX_BUFFER_SIZE (USART2_TX_BUFFER_SIZE)
+#define USART1_RX_BUFFER_SIZE (USART2_RX_BUFFER_SIZE)
+uint8_t usart1_tx_buffer[USART1_TX_BUFFER_SIZE];
+uint8_t usart1_rx_buffer[USART1_RX_BUFFER_SIZE];
+volatile uint8_t usart1_tx_counter = 0x00;
+volatile uint8_t usart1_rx_counter = 0x00;
+uint8_t usart1_tx_buffer_size      = USART1_TX_BUFFER_SIZE;
+uint8_t usart1_rx_buffer_size      = USART1_RX_BUFFER_SIZE;
+bool usart1_rx_idle_flag           = false;
+
+#define TICK_COUNT_VALUE (SysTick->VAL)
 /* add user code end 0 */
 
 /**
@@ -424,6 +434,12 @@ int main(void)
     // 设置阶段为1，表示初始化完成
     stage = 1;
     // 串口相关：数据位个数9位(包含奇偶校验位)，奇校验，1位停止位，9600波特率
+    usart_interrupt_enable(USART1, USART_RDBF_INT, TRUE);
+    usart_interrupt_enable(USART1, USART_TDBE_INT, FALSE);
+    usart_interrupt_enable(USART1, USART_ERR_INT, TRUE);
+    usart_interrupt_enable(USART1, USART_PERR_INT, TRUE);
+    usart_interrupt_enable(USART1, USART_IDLE_INT, TRUE);
+
     usart_interrupt_enable(USART2, USART_RDBF_INT, TRUE);
     usart_interrupt_enable(USART2, USART_TDBE_INT, FALSE);
     usart_interrupt_enable(USART2, USART_ERR_INT, TRUE);
@@ -490,10 +506,18 @@ int main(void)
             usart2_tx_buffer[idx++] = 0;
             usart2_tx_buffer[idx++] = 0;
             usart2_tx_buffer[idx++] = 0;
+            usart2_tx_buffer[idx++] = 0;
+            usart2_tx_buffer[idx++] = 0;
             crc_res                 = CRC16_CCITT_FALSE(usart2_tx_buffer, 4);
             usart2_tx_buffer[idx++] = crc_res & 0xFF;
             usart2_tx_buffer[idx++] = crc_res >> 8;
+
+            usart2_tx_counter = 0;
             usart_interrupt_enable(USART2, USART_TDBE_INT, TRUE);
+
+            memcpy(usart1_tx_buffer, usart2_tx_buffer, sizeof(usart1_tx_buffer));
+            usart1_tx_counter = 0;
+            usart_interrupt_enable(USART1, USART_TDBE_INT, TRUE);
         } while (0);
 
         // wk_delay_ms(1);
@@ -671,11 +695,81 @@ void DMA1_Channel1_IRQHandler(void)
 void USART1_IRQHandler(void)
 {
     if (usart_interrupt_flag_get(USART1, USART_RDBF_FLAG) != RESET) {
+        if (usart1_rx_counter < usart1_rx_buffer_size) {
+            /* read one byte from the receive data register */
+            usart1_rx_buffer[usart1_rx_counter++] = usart_data_receive(USART1);
+        } else {
+            volatile uint8_t ch = usart_data_receive(USART1);
+        }
         usart_flag_clear(USART1, USART_RDBF_FLAG);
     }
 
     if (usart_interrupt_flag_get(USART1, USART_TDBE_FLAG) != RESET) {
-        usart_interrupt_enable(USART1, USART_TDBE_INT, FALSE);
+        /* write one byte to the transmit data register */
+        usart_data_transmit(USART1, usart1_tx_buffer[usart1_tx_counter++]);
+
+        if (usart1_tx_counter == usart1_tx_buffer_size) {
+            /* disable the usart1 transmit interrupt */
+            usart_interrupt_enable(USART1, USART_TDBE_INT, FALSE);
+        }
+    }
+
+    /* 处理帧错误中断 */
+    if (usart_interrupt_flag_get(USART1, USART_FERR_FLAG) != RESET) {
+        /* 清除帧错误标志 */
+        usart_flag_clear(USART1, USART_FERR_FLAG);
+        /* 可以在这里添加帧错误处理代码 */
+    }
+
+    /* 处理噪声错误中断 */
+    if (usart_interrupt_flag_get(USART1, USART_NERR_FLAG) != RESET) {
+        /* 清除噪声错误标志 */
+        usart_flag_clear(USART1, USART_NERR_FLAG);
+        /* 可以在这里添加噪声错误处理代码 */
+    }
+
+    /* 处理奇偶校验错误中断 */
+    if (usart_interrupt_flag_get(USART1, USART_PERR_FLAG) != RESET) {
+        volatile uint8_t ch = usart_data_receive(USART1);
+        /* 清除奇偶校验错误标志 */
+        usart_flag_clear(USART1, USART_PERR_FLAG);
+        /* 可以在这里添加奇偶校验错误处理代码 */
+    }
+
+    /* 处理接收器溢出错误中断 */
+    if (usart_interrupt_flag_get(USART1, USART_ROERR_FLAG) != RESET) {
+        /* 清除接收器溢出错误标志 */
+        usart_flag_clear(USART1, USART_ROERR_FLAG);
+        /* 可以在这里添加接收器溢出错误处理代码 */
+    }
+
+    /* 处理空闲帧中断 */
+    if (usart_interrupt_flag_get(USART1, USART_IDLEF_FLAG) != RESET) {
+        usart1_rx_idle_flag = true;
+        /* 清除空闲帧标志 */
+        usart_flag_clear(USART1, USART_IDLEF_FLAG);
+        /* 可以在这里添加空闲帧处理代码 */
+    }
+
+    /* 处理发送完成中断 */
+    if (usart_interrupt_flag_get(USART1, USART_TDC_FLAG) != RESET) {
+        /* 清除发送完成标志 */
+        usart_flag_clear(USART1, USART_TDC_FLAG);
+        /* 可以在这里添加发送完成处理代码 */
+    }
+
+    /* 处理断帧中断 */
+    if (usart_interrupt_flag_get(USART1, USART_BFF_FLAG) != RESET) {
+        /* 清除断帧标志 */
+        usart_flag_clear(USART1, USART_BFF_FLAG);
+        /* 可以在这里添加断帧处理代码 */
+    }
+
+    /* 处理CTS变化中断 */
+    if (usart_interrupt_flag_get(USART1, USART_CTSCF_FLAG) != RESET) {
+        /* 清除CTS变化标志 */
+        usart_flag_clear(USART1, USART_CTSCF_FLAG);
+        /* 可以在这里添加CTS变化处理代码 */
     }
 }
 /**
@@ -793,20 +887,4 @@ void scope_init()
      * SEGGER_RTT_Write(1, &rtt_data, 16);
      */
 }
-
-/*
-if (interrupt_cnt & 0x01) {
-// 奇数次中断，尝试将第一位小数四舍五入
-#if PID_SHIFT > 0
-    tmr_channel_value += ((llc_curr_duty_cycle_pid.iF & (1UL << (PID_SHIFT - 1))) ? 1 : 0);
-#endif
-}
-tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, tmr_channel_value);
-
-if (result == 1) {
-    // 如果占空比PID的输出到达上限无法在增大输出占空比切换到频率PID控制
-    stage = duty_switch_stage;
-    stage_debug = duty_switch_stage;
-}
-*/
 /* add user code end 4 */
