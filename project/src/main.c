@@ -281,6 +281,15 @@ void set_llc_volt_target_to_adc_value_q32(float target_llc_volt)
     llc_volt_pid.iTarget = value;
 }
 
+#define COUNTOF(a)            (sizeof(a) / sizeof(*(a)))
+#define USART2_TX_BUFFER_SIZE (COUNTOF(usart2_tx_buffer) - 1)
+#define USART2_RX_BUFFER_SIZE (COUNTOF(usart2_rx_buffer) - 1)
+uint8_t usart2_tx_buffer[] = "usart transfer by interrupt: usart2 -> usart1 using interrupt";
+uint8_t usart2_rx_buffer[USART2_TX_BUFFER_SIZE];
+volatile uint8_t usart2_tx_counter = 0x00;
+volatile uint8_t usart2_rx_counter = 0x00;
+uint8_t usart2_tx_buffer_size      = USART2_TX_BUFFER_SIZE;
+uint8_t usart2_rx_buffer_size      = USART2_RX_BUFFER_SIZE;
 /* add user code end 0 */
 
 /**
@@ -378,7 +387,7 @@ int main(void)
     set_llc_volt_target_to_adc_value_q32(llc_volt_target);
     // 设置阶段为1，表示初始化完成
     stage = 1;
-    // 串口相关
+    // 串口相关：数据位个数9位(包含奇偶校验位)，奇校验，1位停止位，9600波特率
     usart_interrupt_enable(USART2, USART_RDBF_INT, TRUE);
     usart_interrupt_enable(USART2, USART_TDBE_INT, FALSE);
     usart_interrupt_enable(USART2, USART_ERR_INT, TRUE);
@@ -389,15 +398,26 @@ int main(void)
         /* add user code begin 3 */
         // 发送数据到JScope,12字节
         // SEGGER_RTT_Write(1, &rtt_data, sizeof(rtt_data));
-        ULOG_INFO("I %f,reg %u,mid %d", votlage_debug[ADC_IIN_RANK_IDX],
-                  adc_buffer[ADC_IIN_RANK_IDX], adc_buffer_init[ADC_IIN_RANK_IDX]);
+        // ULOG_INFO("I %f,reg %u,mid %d", votlage_debug[ADC_IIN_RANK_IDX],
+        //           adc_buffer[ADC_IIN_RANK_IDX], adc_buffer_init[ADC_IIN_RANK_IDX]);
 
         if (llc_volt_target_changed) {
             // 如果LLC目标电压改变，更新PID目标
             set_llc_volt_target_to_adc_value_q32(llc_volt_target);
             llc_volt_target_changed = false; // 重置标志位
         }
-        wk_delay_ms(200);
+        wk_delay_ms(1);
+        if (usart2_rx_counter > 0) {
+            uint8_t value = usart2_rx_buffer[0];
+            if (value > 220) {
+                value = 220;
+            } else if (value < 10) {
+                value = 10;
+            }
+            llc_volt_target         = value;
+            llc_volt_target_changed = true;
+            usart2_rx_counter--;
+        }
         /* add user code end 3 */
     }
 }
@@ -524,13 +544,6 @@ void DMA1_Channel1_IRQHandler(void)
     /* add user code end DMA1_Channel1_IRQ 1 */
 }
 
-#define COUNTOF(a)            (sizeof(a) / sizeof(*(a)))
-#define USART2_TX_BUFFER_SIZE (COUNTOF(usart2_tx_buffer) - 1)
-uint8_t usart2_tx_buffer[] = "usart transfer by interrupt: usart2 -> usart1 using interrupt";
-uint8_t usart2_rx_buffer[USART2_TX_BUFFER_SIZE];
-volatile uint8_t usart2_tx_counter = 0x00;
-volatile uint8_t usart2_rx_counter = 0x00;
-
 /**
  * @brief  this function handles usart2 handler.
  * @param  none
@@ -539,11 +552,10 @@ volatile uint8_t usart2_rx_counter = 0x00;
 void USART2_IRQHandler(void)
 {
     if (usart_interrupt_flag_get(USART2, USART_RDBF_FLAG) != RESET) {
-        if (usart2_rx_counter < usart1_tx_buffer_size) {
+        if (usart2_rx_counter < usart2_rx_buffer_size) {
             /* read one byte from the receive data register */
             usart2_rx_buffer[usart2_rx_counter++] = usart_data_receive(USART2);
-        }else
-        {
+        } else {
             volatile uint8_t ch = usart_data_receive(USART2);
         }
         usart_flag_clear(USART2, USART_RDBF_FLAG);
