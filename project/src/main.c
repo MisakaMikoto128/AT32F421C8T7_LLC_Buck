@@ -378,6 +378,11 @@ int main(void)
     set_llc_volt_target_to_adc_value_q32(llc_volt_target);
     // 设置阶段为1，表示初始化完成
     stage = 1;
+    // 串口相关
+    usart_interrupt_enable(USART2, USART_RDBF_INT, TRUE);
+    usart_interrupt_enable(USART2, USART_TDBE_INT, FALSE);
+    usart_interrupt_enable(USART2, USART_ERR_INT, TRUE);
+    usart_interrupt_enable(USART2, USART_PERR_INT, TRUE);
     /* add user code end 2 */
 
     while (1) {
@@ -517,6 +522,98 @@ void DMA1_Channel1_IRQHandler(void)
     /* add user code begin DMA1_Channel1_IRQ 1 */
 
     /* add user code end DMA1_Channel1_IRQ 1 */
+}
+
+#define COUNTOF(a)            (sizeof(a) / sizeof(*(a)))
+#define USART2_TX_BUFFER_SIZE (COUNTOF(usart2_tx_buffer) - 1)
+uint8_t usart2_tx_buffer[] = "usart transfer by interrupt: usart2 -> usart1 using interrupt";
+uint8_t usart2_rx_buffer[USART2_TX_BUFFER_SIZE];
+volatile uint8_t usart2_tx_counter = 0x00;
+volatile uint8_t usart2_rx_counter = 0x00;
+
+/**
+ * @brief  this function handles usart2 handler.
+ * @param  none
+ * @retval none
+ */
+void USART2_IRQHandler(void)
+{
+    if (usart_interrupt_flag_get(USART2, USART_RDBF_FLAG) != RESET) {
+        if (usart2_rx_counter < usart1_tx_buffer_size) {
+            /* read one byte from the receive data register */
+            usart2_rx_buffer[usart2_rx_counter++] = usart_data_receive(USART2);
+        }else
+        {
+            volatile uint8_t ch = usart_data_receive(USART2);
+        }
+        usart_flag_clear(USART2, USART_RDBF_FLAG);
+    }
+
+    if (usart_interrupt_flag_get(USART2, USART_TDBE_FLAG) != RESET) {
+        /* write one byte to the transmit data register */
+        usart_data_transmit(USART2, usart2_tx_buffer[usart2_tx_counter++]);
+
+        if (usart2_tx_counter == usart2_tx_buffer_size) {
+            /* disable the usart2 transmit interrupt */
+            usart_interrupt_enable(USART2, USART_TDBE_INT, FALSE);
+        }
+    }
+
+    /* 处理帧错误中断 */
+    if (usart_interrupt_flag_get(USART2, USART_FERR_FLAG) != RESET) {
+        /* 清除帧错误标志 */
+        usart_flag_clear(USART2, USART_FERR_FLAG);
+        /* 可以在这里添加帧错误处理代码 */
+    }
+
+    /* 处理噪声错误中断 */
+    if (usart_interrupt_flag_get(USART2, USART_NERR_FLAG) != RESET) {
+        /* 清除噪声错误标志 */
+        usart_flag_clear(USART2, USART_NERR_FLAG);
+        /* 可以在这里添加噪声错误处理代码 */
+    }
+
+    /* 处理奇偶校验错误中断 */
+    if (usart_interrupt_flag_get(USART2, USART_PERR_FLAG) != RESET) {
+        /* 清除奇偶校验错误标志 */
+        usart_flag_clear(USART2, USART_PERR_FLAG);
+        /* 可以在这里添加奇偶校验错误处理代码 */
+    }
+
+    /* 处理接收器溢出错误中断 */
+    if (usart_interrupt_flag_get(USART2, USART_ROERR_FLAG) != RESET) {
+        /* 清除接收器溢出错误标志 */
+        usart_flag_clear(USART2, USART_ROERR_FLAG);
+        /* 可以在这里添加接收器溢出错误处理代码 */
+    }
+
+    /* 处理空闲帧中断 */
+    if (usart_interrupt_flag_get(USART2, USART_IDLEF_FLAG) != RESET) {
+        /* 清除空闲帧标志 */
+        usart_flag_clear(USART2, USART_IDLEF_FLAG);
+        /* 可以在这里添加空闲帧处理代码 */
+    }
+
+    /* 处理发送完成中断 */
+    if (usart_interrupt_flag_get(USART2, USART_TDC_FLAG) != RESET) {
+        /* 清除发送完成标志 */
+        usart_flag_clear(USART2, USART_TDC_FLAG);
+        /* 可以在这里添加发送完成处理代码 */
+    }
+
+    /* 处理断帧中断 */
+    if (usart_interrupt_flag_get(USART2, USART_BFF_FLAG) != RESET) {
+        /* 清除断帧标志 */
+        usart_flag_clear(USART2, USART_BFF_FLAG);
+        /* 可以在这里添加断帧处理代码 */
+    }
+
+    /* 处理CTS变化中断 */
+    if (usart_interrupt_flag_get(USART2, USART_CTSCF_FLAG) != RESET) {
+        /* 清除CTS变化标志 */
+        usart_flag_clear(USART2, USART_CTSCF_FLAG);
+        /* 可以在这里添加CTS变化处理代码 */
+    }
 }
 
 // 内联汇编实现
