@@ -68,7 +68,7 @@ void wk_usart2_init(void)
   gpio_init(GPIOA, &gpio_init_struct);
 
   /* configure param */
-  usart_init(USART2, 9600, USART_DATA_9BITS, USART_STOP_1_BIT);
+  usart_init(USART2, 115200, USART_DATA_9BITS, USART_STOP_1_BIT);
   usart_transmitter_enable(USART2, TRUE);
   usart_receiver_enable(USART2, TRUE);
   usart_parity_selection_config(USART2, USART_PARITY_ODD);
