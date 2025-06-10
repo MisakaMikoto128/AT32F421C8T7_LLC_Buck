@@ -136,10 +136,10 @@ float adc_to_target_scale[ADC_RANK_NUM] = {
 #define LLC_INPUT_CURRENT_OC_LIMIT (4.0f) // 4A
 // LLC输出过压保护
 #define LLC_OV_ADC_VALUE(volt) ((volt) * SCALE_LLC_VOLT_TO_ADC_VALUE)
-uint32_t LLC_OV_THRESHOLD = LLC_OV_ADC_VALUE(350);
+uint32_t LLC_OV_THRESHOLD = LLC_OV_ADC_VALUE(320);
 // Buck输出过压保护
 #define BUCK_OV_ADC_VALUE(volt) ((volt) * SCALE_BUCK_VOLT_TO_ADC_VALUE)
-uint32_t BUCK_OV_THRESHOLD = BUCK_OV_ADC_VALUE(350);
+uint32_t BUCK_OV_THRESHOLD = BUCK_OV_ADC_VALUE(320);
 // LLC输入过流保护阈值，由于是霍尔元件，需要稍后初始化
 uint32_t LLC_OC_THRESHOLD = 2.5f * SCALE_LLC_CURR_TO_ADC_VALUE;
 
@@ -208,18 +208,20 @@ void user_pid_init()
     Inc_PID_Q32_Init(&llc_volt_pid);
     Inc_PID_Q32_Init(&llc_curr_freq_pid);
 
-    uint32_t llc_curr_oc_limit_adc_value = llc_curr_to_adc_value(LLC_INPUT_CURRENT_OC_LIMIT);
-    llc_volt_pid.iFmax                   = llc_curr_oc_limit_adc_value << PID_SHIFT; // 放大
-    llc_volt_pid.iFmin                   = 0;
-    llc_volt_pid.iF                      = llc_volt_pid.iFmin;
-    llc_volt_pid.P                       = 100 * 2;
-    llc_volt_pid.I                       = 1;
-    llc_volt_pid.D                       = 1;
+    uint32_t llc_curr_oc_limit_adc_value    = llc_curr_to_adc_value(LLC_INPUT_CURRENT_OC_LIMIT);
+    uint32_t llc_curr_lower_limit_adc_value = llc_curr_to_adc_value(-0.2f);
+    uint32_t llc_curr_zero_limit_adc_value  = llc_curr_to_adc_value(0);
+    llc_volt_pid.iFmax                      = llc_curr_oc_limit_adc_value << PID_SHIFT; // 放大
+    llc_volt_pid.iFmin                      = llc_curr_lower_limit_adc_value << PID_SHIFT;
+    llc_volt_pid.iF                         = llc_curr_zero_limit_adc_value << PID_SHIFT;
+    llc_volt_pid.P                          = 100 * 2;
+    llc_volt_pid.I                          = 1;
+    llc_volt_pid.D                          = 1;
 
-    llc_curr_freq_pid.iFmax = (LLC_PWM_PERIOD_UPPER_LIMIT + 1) << PID_SHIFT_14; // 放大 1200
-    llc_curr_freq_pid.iFmin = 0 << PID_SHIFT_14;                                // 放大
-    llc_curr_freq_pid.iF    = (LLC_PWM_PERIOD_LOWER_LIMIT + 1) << PID_SHIFT_14;
-    ; // 初始为最大频率
+    llc_curr_freq_pid.iFmax = (LLC_PWM_PERIOD_UPPER_LIMIT + 1) << PID_SHIFT_14; // 1200放大
+    llc_curr_freq_pid.iFmin = 10 << PID_SHIFT_14;                               // 放大
+    llc_curr_freq_pid.iF    = llc_curr_freq_pid.iFmin;
+    // 初始为最大频率最小占空比
     llc_curr_freq_pid.P = 200 * 1;
     llc_curr_freq_pid.I = 50 * 1;
     llc_curr_freq_pid.D = 0;
@@ -347,19 +349,19 @@ int main(void)
     tmr_channel_enable(TMR15, TMR_SELECT_CHANNEL_1, TRUE);
     // 同样的Buck置完再频率后再使能驱动PWM输出，消除暂态
     tmr_output_enable(TMR15, TRUE); // 要使能output，不然无法触发ADC采集。
+    // 初始化阶段
+    stage = 0;
+    dma_interrupt_enable(DMA1_CHANNEL1, DMA_FDT_INT, TRUE);
+    dma_interrupt_enable(DMA1_CHANNEL1, DMA_HDT_INT, TRUE);
+    dma_interrupt_enable(DMA1_CHANNEL1, DMA_DTERR_INT, TRUE);
     // 延时一段时间获取ADC初始值，用于校准霍尔电流传感器
     wk_delay_ms(200);
     // 保存初始值
-    memcpy((void *)adc_buffer_init, (void *)adc_buffer, sizeof(adc_buffer_init));
+    memcpy((void *)adc_buffer_init, (void *)filtered_adc, sizeof(adc_buffer_init));
     // 初始化PID控制器
     user_pid_init();
     // 设置过流保护阈值
     LLC_OC_THRESHOLD = llc_curr_to_adc_value(LLC_INPUT_CURRENT_UPPER_LIMIT);
-
-    dma_interrupt_enable(DMA1_CHANNEL1, DMA_FDT_INT, TRUE);
-    dma_interrupt_enable(DMA1_CHANNEL1, DMA_HDT_INT, TRUE);
-    dma_interrupt_enable(DMA1_CHANNEL1, DMA_DTERR_INT, TRUE);
-
     // 初始LLC频率为最高频率
     llc_set_pwm_frequency(LLC_FREQUENCY_UPPER_LIMIT);
     // 初始LLC占空比
@@ -368,8 +370,6 @@ int main(void)
     buck_set_tmr_channel_value(0);
     // 设置完LLC的频率后再使能LLC的驱动PWM输出，消除暂态
     tmr_output_enable(TMR1, TRUE);
-    // 启动LLC输出
-    llc_output_enable();
     // 设置LLC目标电压
     set_llc_volt_target_to_adc_value_q32(llc_volt_target);
     // 设置阶段为1，表示初始化完成
@@ -380,7 +380,6 @@ int main(void)
         /* add user code begin 3 */
         // 发送数据到JScope,12字节
         // SEGGER_RTT_Write(1, &rtt_data, sizeof(rtt_data));
-        wk_delay_ms(200);
         ULOG_INFO("I %f,reg %u,mid %d", votlage_debug[ADC_IIN_RANK_IDX],
                   adc_buffer[ADC_IIN_RANK_IDX], adc_buffer_init[ADC_IIN_RANK_IDX]);
 
@@ -389,6 +388,7 @@ int main(void)
             set_llc_volt_target_to_adc_value_q32(llc_volt_target);
             llc_volt_target_changed = false; // 重置标志位
         }
+        wk_delay_ms(200);
         /* add user code end 3 */
     }
 }
@@ -435,7 +435,7 @@ void adc_dma_handler()
     llc_curr_freq_pid.iSampling       = filtered_adc[ADC_IIN_RANK_IDX];
     static int result                 = 0;
     static uint32_t tmr_channel_value = 0;
-    static uint32_t tmr_period_value = 0;
+    static uint32_t tmr_period_value  = 0;
     switch (stage) {
         case 0:
             // 初始化阶段
@@ -446,7 +446,8 @@ void adc_dma_handler()
             // 使能输出，但是为最低电流
             llc_output_enable();
             // llc_curr_freq_pid.iTarget = llc_curr_to_adc_value(0.1f);
-            stage = 2;
+            interrupt_cnt = 0;
+            stage         = 2;
             break;
         case 2:
             // 正常运行阶段，频率PID控制
@@ -464,7 +465,7 @@ void adc_dma_handler()
                 // llc_set_tmr_period((300) - 1);
             } else {
                 // (300-0)  -> (50%-0%) -> (150-0)
-                tmr_period_value_set(TMR1, (300) - 1);
+                tmr_period_value_set(TMR1, LLC_PWM_PERIOD_LOWER_LIMIT);
                 tmr_channel_value = (llc_curr_freq_pid.iF) >> (PID_SHIFT_14 + 1);
                 if (interrupt_cnt & 0x01) {
                     tmr_channel_value += ((llc_curr_freq_pid.iF & (1UL << ((PID_SHIFT_14 + 1) - 1))) ? 1 : 0);
