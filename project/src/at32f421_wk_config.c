@@ -183,6 +183,9 @@ void wk_periph_clock_config(void)
   /* enable tmr1 periph clock */
   crm_periph_clock_enable(CRM_TMR1_PERIPH_CLOCK, TRUE);
 
+  /* enable usart1 periph clock */
+  crm_periph_clock_enable(CRM_USART1_PERIPH_CLOCK, TRUE);
+
   /* enable tmr15 periph clock */
   crm_periph_clock_enable(CRM_TMR15_PERIPH_CLOCK, TRUE);
 
@@ -213,6 +216,7 @@ void wk_nvic_config(void)
   nvic_irq_enable(DMA1_Channel1_IRQn, 0, 0);
   nvic_irq_enable(TMR1_CH_IRQn, 1, 0);
   nvic_irq_enable(TMR15_GLOBAL_IRQn, 1, 0);
+  nvic_irq_enable(USART1_IRQn, 1, 0);
   nvic_irq_enable(USART2_IRQn, 1, 0);
 }
 

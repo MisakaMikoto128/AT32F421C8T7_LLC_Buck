@@ -95,13 +95,22 @@
             <ParametersSub name="ChannelData_2" value="600"/>
         </Parameters>
     </TMR15>
+    <USART1>
+        <Mode>
+            <ModeSub name="Mode" value="Asynchronous"/>
+        </Mode>
+        <Parameters>
+            <ParametersSub name="RealBaudRate" value="115163"/>
+            <ParametersSub name="Databitnum" value="USART_DATA_9BITS"/>
+            <ParametersSub name="Parityselection" value="USART_PARITY_ODD"/>
+        </Parameters>
+    </USART1>
     <USART2>
         <Mode>
             <ModeSub name="Mode" value="Asynchronous"/>
         </Mode>
         <Parameters>
-            <ParametersSub name="BaudRate" value="9600"/>
-            <ParametersSub name="RealBaudRate" value="9600"/>
+            <ParametersSub name="RealBaudRate" value="115163"/>
             <ParametersSub name="Databitnum" value="USART_DATA_9BITS"/>
             <ParametersSub name="Parityselection" value="USART_PARITY_ODD"/>
         </Parameters>
@@ -122,6 +131,7 @@
         <TMR1_BRK_OVF_TRG_HALL_IRQHandler>0;0;0;0;0</TMR1_BRK_OVF_TRG_HALL_IRQHandler>
         <TMR1_CH_IRQHandler>1;1;0;0;0</TMR1_CH_IRQHandler>
         <TMR15_GLOBAL_IRQHandler>1;1;0;0;0</TMR15_GLOBAL_IRQHandler>
+        <USART1_IRQHandler>1;1;0;0;0</USART1_IRQHandler>
         <USART2_IRQHandler>1;1;0;0;0</USART2_IRQHandler>
     </NVIC>
     <GPIO>
@@ -180,6 +190,8 @@
         <PinSub pinname="PA14" signalname="DEBUG_SWCLK" signaltype="2"/>
         <PinSub pinname="PA15" signalname="USART2_RX" signaltype="3"/>
         <PinSub pinname="PB3" signalname="GPIO_Output" signaltype="3"/>
+        <PinSub pinname="PB6" signalname="USART1_TX" signaltype="2"/>
+        <PinSub pinname="PB7" signalname="USART1_RX" signaltype="2"/>
     </PINInfo>
     <ProjectInfomation>
         <ProjectName>AT32F421C8T7_LLC_Buck</ProjectName>

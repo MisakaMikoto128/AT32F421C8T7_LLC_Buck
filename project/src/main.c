@@ -352,6 +352,9 @@ int main(void)
                           DMA1_CHANNEL1_BUFFER_SIZE);
     dma_channel_enable(DMA1_CHANNEL1, TRUE);
 
+    /* init usart1 function. */
+    wk_usart1_init();
+
     /* init usart2 function. */
     wk_usart2_init();
 
@@ -615,6 +618,21 @@ void DMA1_Channel1_IRQHandler(void)
     /* add user code end DMA1_Channel1_IRQ 1 */
 }
 
+/**
+ * @brief  this function handles usart1 handler.
+ * @param  none
+ * @retval none
+ */
+void USART1_IRQHandler(void)
+{
+    if (usart_interrupt_flag_get(USART1, USART_RDBF_FLAG) != RESET) {
+        usart_flag_clear(USART1, USART_RDBF_FLAG);
+    }
+
+    if (usart_interrupt_flag_get(USART1, USART_TDBE_FLAG) != RESET) {
+        usart_interrupt_enable(USART1, USART_TDBE_INT, FALSE);
+    }
+}
 /**
  * @brief  this function handles usart2 handler.
  * @param  none
