@@ -520,6 +520,10 @@ void adc_dma_handler()
                 tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, tmr_channel_value);
             }
             break;
+        case 4:
+            //准备停止阶段
+            llc_output_disable();
+            stage = 0;
         default:
             break;
     }
