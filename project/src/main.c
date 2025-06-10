@@ -225,7 +225,7 @@ void user_pid_init()
     // 初始为最大频率最小占空比
     llc_curr_freq_pid.P = 200 * 1;
     llc_curr_freq_pid.I = 50 * 1;
-    llc_curr_freq_pid.D = 0;
+    llc_curr_freq_pid.D = 1;
 }
 
 void llc_output_enable()
@@ -269,7 +269,7 @@ void scope_init();
 
 int stage                    = 0;
 int protect_type             = 0;     // 0:无保护，1:输入过流保护，2:输出过压保护
-float llc_volt_target        = 30.0f; // LLC目标电压，单位V
+float llc_volt_target        = 25.0f; // LLC目标电压，单位V
 bool llc_volt_target_changed = false; // LLC目标电压是否改变
 int stage_debug              = 0;
 uint32_t interrupt_cnt       = 0;
@@ -277,13 +277,27 @@ uint32_t interrupt_pre_ticks = 0;
 
 void set_llc_volt_target_to_adc_value_q32(float target_llc_volt)
 {
-    float setting_volt = 0.9908f* target_llc_volt + 3.6903f;
+    float setting_volt = 0.9908f * target_llc_volt + 3.6903f;
     if (setting_volt < 0)
     {
         setting_volt = 0;
     }
     uint32_t value       = setting_volt * SCALE_LLC_VOLT_TO_ADC_VALUE;
     llc_volt_pid.iTarget = value;
+}
+
+float get_llc_voit_from_adc_value()
+{
+    // 将ADC值转换为基础电压值
+    float voltage = filtered_adc[ADC_V_LLC_RANK_IDX] * SCALE_ADC_VALUE_TO_LLC_VOLT;
+    // 应用校准公式：实际电压 = (测量电压 - 3.6903) / 0.9908
+    // 这个公式是set_llc_volt_target_to_adc_value_q32中公式的反向转换
+    voltage = (voltage - 3.6903f) / 0.9908f;
+    if (voltage < 0)
+    {
+        voltage = 0;
+    }
+    return voltage;
 }
 
 #define COUNTOF(a)            (sizeof(a) / sizeof(*(a)))
@@ -438,6 +452,11 @@ int main(void)
         }
 
         wk_delay_ms(1);
+        
+        // 5秒后软件复位
+        // wk_delay_ms(5*1000);
+        // __NVIC_SystemReset();
+        
         /* add user code end 3 */
     }
 }
