@@ -42,6 +42,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "crc.h"
+#include "ccommon.h"
 /* add user code end private includes */
 
 /* private typedef -----------------------------------------------------------*/
@@ -131,11 +132,11 @@ float adc_to_target_scale[ADC_RANK_NUM] = {
 // LLC Duty比较器映射
 // (300-0)  -> (50%-0%) -> (150-0)
 // LLC 输入电流安全上限
-#define LLC_INPUT_CURRENT_UPPER_LIMIT 5.0f // 5A
+#define LLC_INPUT_CURRENT_UPPER_LIMIT 5.0f // 5A,TODO:这里限制要改，不然ADC测不到这么高。
 // LLC 输入电流下限
 #define LLC_INPUT_CURRENT_LOWER_LIMIT 0.0f // 0A
 // LLC 输入电流限制
-#define LLC_INPUT_CURRENT_OC_LIMIT (4.0f) // 4A
+#define LLC_INPUT_CURRENT_OC_LIMIT (3.5f) // 4A，改成3.5A，因为ADC压根测不到4A。
 // LLC输出过压保护
 #define LLC_OV_ADC_VALUE(volt) ((volt) * SCALE_LLC_VOLT_TO_ADC_VALUE)
 uint32_t LLC_OV_THRESHOLD = LLC_OV_ADC_VALUE(320);
@@ -148,6 +149,7 @@ uint32_t LLC_OC_THRESHOLD = 2.5f * SCALE_LLC_CURR_TO_ADC_VALUE;
 // PID控制器实例
 Inc_PID_Q32_t llc_volt_pid;
 Inc_PID_Q32_t llc_curr_freq_pid;
+Inc_PID_Q32_t llc_volt_freq_pid;
 // PID控制器的缩放因子
 #define PID_SHIFT    12
 #define PID_SHIFT_14 14
@@ -209,6 +211,7 @@ void user_pid_init()
     // Init all fields as zero.
     Inc_PID_Q32_Init(&llc_volt_pid);
     Inc_PID_Q32_Init(&llc_curr_freq_pid);
+    Inc_PID_Q32_Init(&llc_volt_freq_pid);
 
     uint32_t llc_curr_oc_limit_adc_value    = llc_curr_to_adc_value(LLC_INPUT_CURRENT_OC_LIMIT);
     uint32_t llc_curr_lower_limit_adc_value = llc_curr_to_adc_value(-0.05f);
@@ -227,6 +230,14 @@ void user_pid_init()
     llc_curr_freq_pid.P = 200 * 1;
     llc_curr_freq_pid.I = 50 * 1;
     llc_curr_freq_pid.D = 1;
+
+    llc_volt_freq_pid.iFmax = (LLC_PWM_PERIOD_UPPER_LIMIT + 1) << PID_SHIFT_14; // 1200放大
+    llc_volt_freq_pid.iFmin = 10 << PID_SHIFT_14;                               // 放大
+    llc_volt_freq_pid.iF    = llc_volt_freq_pid.iFmin;
+    // 初始为最大频率最小占空比
+    llc_volt_freq_pid.P = 200 * 1;
+    llc_volt_freq_pid.I = 50 * 1;
+    llc_volt_freq_pid.D = 1;
 }
 
 void llc_output_enable()
@@ -282,8 +293,9 @@ void set_llc_volt_target_to_adc_value_q32(float target_llc_volt)
     if (setting_volt < 0) {
         setting_volt = 0;
     }
-    uint32_t value       = setting_volt * SCALE_LLC_VOLT_TO_ADC_VALUE;
-    llc_volt_pid.iTarget = value;
+    uint32_t value            = setting_volt * SCALE_LLC_VOLT_TO_ADC_VALUE;
+    llc_volt_pid.iTarget      = value;
+    llc_volt_freq_pid.iTarget = value;
 }
 
 float get_llc_voit_from_adc_value()
@@ -533,9 +545,11 @@ void adc_dma_handler()
     // 缩放见@user_pid_init
     llc_volt_pid.iSampling            = filtered_adc[ADC_V_LLC_RANK_IDX];
     llc_curr_freq_pid.iSampling       = filtered_adc[ADC_IIN_RANK_IDX];
+    llc_volt_freq_pid.iSampling       = filtered_adc[ADC_V_LLC_RANK_IDX];
     static int result                 = 0;
     static uint32_t tmr_channel_value = 0;
     static uint32_t tmr_period_value  = 0;
+    static int32_t iF                 = 0;
     switch (stage) {
         case 0:
             // 初始化阶段
@@ -548,6 +562,8 @@ void adc_dma_handler()
             // llc_curr_freq_pid.iTarget = 3259 + 0;
             interrupt_cnt = 0;
             stage         = 2;
+            // 初始化一下这个值，避免滤波问题。
+            iF = llc_curr_freq_pid.iF;
             break;
         case 2:
             // 正常运行阶段，频率PID控制
@@ -557,17 +573,46 @@ void adc_dma_handler()
             llc_curr_freq_pid.iTarget = llc_volt_pid.iF >> PID_SHIFT;
             // 当前电流低于目标电流则会增大PERIOD寄存器值从而降低频率，使得频率靠近谐振点从而提高电流
             Inc_PID_Q32_Update_AddDelta(&llc_curr_freq_pid);
+#define OVERSHOOT_SUPPRESSION_METHOD 0
+#if OVERSHOOT_SUPPRESSION_METHOD == 0
+            // 超调抑制方法0：啥也不做，PID参数抑制超调，大概率是电压环的P参数过大。
+            iF = llc_curr_freq_pid.iF;
+#elif OVERSHOOT_SUPPRESSION_METHOD == 1
+            // 超调抑制方法1：引入直接控制频率的电压环，求平均
+            // 当前电压低于目标电流则会增大PERIOD寄存器值从而降低频率，使得频率靠近谐振点从而提高电压
+            Inc_PID_Q32_Update_AddDelta(&llc_volt_freq_pid);
+            iF = ((int64_t)llc_curr_freq_pid.iF + (int64_t)llc_volt_freq_pid.iF) >> 1;
+#elif OVERSHOOT_SUPPRESSION_METHOD == 2
+#define __SHIFT 2 // 相当于除以4的滤波系数
+            // 超调抑制方法2：引入直接控制频率的电压环，求加权平均
+            // 当前电压低于目标电流则会增大PERIOD寄存器值从而降低频率，使得频率靠近谐振点从而提高电压
+            Inc_PID_Q32_Update_AddDelta(&llc_volt_freq_pid);
+            // F = (3*I + V) / 4
+            iF = (((llc_curr_freq_pid.iF << __SHIFT) - llc_curr_freq_pid.iF) + llc_volt_freq_pid.iF) >> __SHIFT;
+#elif OVERSHOOT_SUPPRESSION_METHOD == 3
+            // 超调抑制方法3：引入直接控制频率的电压环，求最小电流，也就是最大频率，也就是最小分频寄存器值
+            // 当前电压低于目标电流则会增大PERIOD寄存器值从而降低频率，使得频率靠近谐振点从而提高电压
+            Inc_PID_Q32_Update_AddDelta(&llc_volt_freq_pid);
+            iF = MIN(llc_curr_freq_pid.iF, llc_volt_freq_pid.iF);
+#elif OVERSHOOT_SUPPRESSION_METHOD == 4
+#define __SHIFT 3 // 相当于除以8的滤波系数
+            // 超调抑制方法4：引入目标值滤波器，通过滤波器减少电压超调
+            // 定点数一阶滤波: y[n] = (x[n] + 7*y[n-1]) / 8
+            iF = (llc_curr_freq_pid.iF + (iF << __SHIFT) - iF) >> __SHIFT;
+#endif            //! OVERSHOOT_SUPPRESSION_METHOD
+
+            // @Apply PID
             // 将频率PID的输出目标频率的对应PERIOD寄存器值作为LLC PWM定时器的PERIOD寄存器值，默认为50%占空比
-            if (llc_curr_freq_pid.iF >= (LLC_PWM_PERIOD_LOWER_LIMIT << PID_SHIFT_14)) {
+            if (iF >= (LLC_PWM_PERIOD_LOWER_LIMIT << PID_SHIFT_14)) {
                 // 大于，频率低于最大频率
-                tmr_period_value = (llc_curr_freq_pid.iF >> PID_SHIFT_14) - 1;
+                tmr_period_value = (iF >> PID_SHIFT_14) - 1;
                 llc_set_tmr_period(tmr_period_value);
             } else {
                 // (300-0)  -> (50%-0%) -> (150-0)
                 tmr_period_value_set(TMR1, LLC_PWM_PERIOD_LOWER_LIMIT);
-                tmr_channel_value = (llc_curr_freq_pid.iF) >> (PID_SHIFT_14 + 1);
+                tmr_channel_value = (iF) >> (PID_SHIFT_14 + 1);
                 if (interrupt_cnt & 0x01) {
-                    tmr_channel_value += ((llc_curr_freq_pid.iF & (1UL << ((PID_SHIFT_14 + 1) - 1))) ? 1 : 0);
+                    tmr_channel_value += ((iF & (1UL << ((PID_SHIFT_14 + 1) - 1))) ? 1 : 0);
                 }
                 tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, tmr_channel_value);
             }
