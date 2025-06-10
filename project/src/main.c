@@ -41,6 +41,7 @@
 #include "pid_q32.h"
 #include <string.h>
 #include <stdlib.h>
+#include "crc.h"
 /* add user code end private includes */
 
 /* private typedef -----------------------------------------------------------*/
@@ -278,8 +279,7 @@ uint32_t interrupt_pre_ticks = 0;
 void set_llc_volt_target_to_adc_value_q32(float target_llc_volt)
 {
     float setting_volt = 0.9908f * target_llc_volt + 3.6903f;
-    if (setting_volt < 0)
-    {
+    if (setting_volt < 0) {
         setting_volt = 0;
     }
     uint32_t value       = setting_volt * SCALE_LLC_VOLT_TO_ADC_VALUE;
@@ -293,23 +293,22 @@ float get_llc_voit_from_adc_value()
     // 应用校准公式：实际电压 = (测量电压 - 3.6903) / 0.9908
     // 这个公式是set_llc_volt_target_to_adc_value_q32中公式的反向转换
     voltage = (voltage - 3.6903f) / 0.9908f;
-    if (voltage < 0)
-    {
+    if (voltage < 0) {
         voltage = 0;
     }
     return voltage;
 }
 
 #define COUNTOF(a)            (sizeof(a) / sizeof(*(a)))
-#define USART2_TX_BUFFER_SIZE (COUNTOF(usart2_tx_buffer) - 1)
-#define USART2_RX_BUFFER_SIZE (COUNTOF(usart2_rx_buffer) - 1)
-uint8_t usart2_tx_buffer[] = "usart transfer by interrupt: usart2 -> usart1 using interrupt";
-uint8_t usart2_rx_buffer[USART2_TX_BUFFER_SIZE];
+#define USART2_TX_BUFFER_SIZE (6)
+#define USART2_RX_BUFFER_SIZE (20)
+uint8_t usart2_tx_buffer[USART2_TX_BUFFER_SIZE];
+uint8_t usart2_rx_buffer[USART2_RX_BUFFER_SIZE];
 volatile uint8_t usart2_tx_counter = 0x00;
 volatile uint8_t usart2_rx_counter = 0x00;
 uint8_t usart2_tx_buffer_size      = USART2_TX_BUFFER_SIZE;
 uint8_t usart2_rx_buffer_size      = USART2_RX_BUFFER_SIZE;
-
+bool usart2_rx_idle_flag           = false;
 #define TICK_COUNT_VALUE (SysTick->VAL)
 
 /* add user code end 0 */
@@ -414,6 +413,7 @@ int main(void)
     usart_interrupt_enable(USART2, USART_TDBE_INT, FALSE);
     usart_interrupt_enable(USART2, USART_ERR_INT, TRUE);
     usart_interrupt_enable(USART2, USART_PERR_INT, TRUE);
+    usart_interrupt_enable(USART2, USART_IDLE_INT, TRUE);
     uint16_t ms_rec = 0;
     /* add user code end 2 */
 
@@ -427,10 +427,10 @@ int main(void)
             //           adc_buffer[ADC_IIN_RANK_IDX], adc_buffer_init[ADC_IIN_RANK_IDX]);
 
             // 目标电压，当前LLC电压ADC值，当前LLC电压计算值
-            ULOG_INFO("LLC V: target=%fV, adc=%u, calc=%fV", 
-                     llc_volt_target,
-                     filtered_adc[ADC_V_LLC_RANK_IDX],
-                     votlage_debug[ADC_V_LLC_RANK_IDX]);
+            ULOG_INFO("LLC V: target=%fV, adc=%u, calc=%fV",
+                      llc_volt_target,
+                      filtered_adc[ADC_V_LLC_RANK_IDX],
+                      votlage_debug[ADC_V_LLC_RANK_IDX]);
         }
 
         if (llc_volt_target_changed) {
@@ -439,7 +439,26 @@ int main(void)
             llc_volt_target_changed = false; // 重置标志位
         }
 
-        if (usart2_rx_counter > 0) {
+        // 处理串口数据
+        do {
+            if (!usart2_rx_idle_flag) {
+                break;
+            } else {
+                usart2_rx_idle_flag = false;
+            }
+
+            int rx_bytes_num  = usart2_rx_counter;
+            usart2_rx_counter = 0;
+
+            if (rx_bytes_num < 4) {
+                break;
+            }
+
+            uint16_t crc_res = CRC16_CCITT_FALSE(usart2_rx_buffer, rx_bytes_num);
+            if (crc_res != 0) {
+                break;
+            }
+
             uint8_t value = usart2_rx_buffer[0];
             if (value > 220) {
                 value = 220;
@@ -448,15 +467,26 @@ int main(void)
             }
             llc_volt_target         = value;
             llc_volt_target_changed = true;
-            usart2_rx_counter--;
-        }
 
-        wk_delay_ms(1);
-        
+            float llc_volt = get_llc_voit_from_adc_value();
+            int idx        = 0;
+
+            usart2_tx_buffer[idx++] = 0;
+            usart2_tx_buffer[idx++] = 0;
+            usart2_tx_buffer[idx++] = 0;
+            usart2_tx_buffer[idx++] = 0;
+            crc_res                 = CRC16_CCITT_FALSE(usart2_tx_buffer, 4);
+            usart2_tx_buffer[idx++] = crc_res & 0xFF;
+            usart2_tx_buffer[idx++] = crc_res >> 8;
+            usart_interrupt_enable(USART2, USART_TDBE_INT, TRUE);
+        } while (0);
+
+        // wk_delay_ms(1);
+
         // 5秒后软件复位
         // wk_delay_ms(5*1000);
         // __NVIC_SystemReset();
-        
+
         /* add user code end 3 */
     }
 }
@@ -466,7 +496,7 @@ int main(void)
 void adc_dma_handler()
 {
     interrupt_cnt++;
-    
+
 #define FILTER_SHIFT 3 // 相当于除以8的滤波系数
     for (int i = 0; i < ADC_RANK_NUM; i++) {
         // 定点数一阶滤波: y[n] = (x[n] + 7*y[n-1]) / 8
@@ -512,7 +542,7 @@ void adc_dma_handler()
             // Inc_PID_Q32_Set_DeltaLimit(&llc_curr_freq_pid, 100, -100);
             // 使能输出，但是为最低电流
             llc_output_enable();
-            //llc_curr_freq_pid.iTarget = 3259 + 0;
+            // llc_curr_freq_pid.iTarget = 3259 + 0;
             interrupt_cnt = 0;
             stage         = 2;
             break;
@@ -540,7 +570,7 @@ void adc_dma_handler()
             }
             break;
         case 4:
-            //准备停止阶段
+            // 准备停止阶段
             llc_output_disable();
             stage = 0;
         default:
@@ -628,6 +658,7 @@ void USART2_IRQHandler(void)
 
     /* 处理奇偶校验错误中断 */
     if (usart_interrupt_flag_get(USART2, USART_PERR_FLAG) != RESET) {
+        volatile uint8_t ch = usart_data_receive(USART2);
         /* 清除奇偶校验错误标志 */
         usart_flag_clear(USART2, USART_PERR_FLAG);
         /* 可以在这里添加奇偶校验错误处理代码 */
@@ -642,6 +673,7 @@ void USART2_IRQHandler(void)
 
     /* 处理空闲帧中断 */
     if (usart_interrupt_flag_get(USART2, USART_IDLEF_FLAG) != RESET) {
+        usart2_rx_idle_flag = true;
         /* 清除空闲帧标志 */
         usart_flag_clear(USART2, USART_IDLEF_FLAG);
         /* 可以在这里添加空闲帧处理代码 */
@@ -700,19 +732,18 @@ void scope_init()
 }
 
 /*
-
-            if (interrupt_cnt & 0x01) {
+if (interrupt_cnt & 0x01) {
 // 奇数次中断，尝试将第一位小数四舍五入
 #if PID_SHIFT > 0
-                tmr_channel_value += ((llc_curr_duty_cycle_pid.iF & (1UL << (PID_SHIFT - 1))) ? 1 : 0);
+    tmr_channel_value += ((llc_curr_duty_cycle_pid.iF & (1UL << (PID_SHIFT - 1))) ? 1 : 0);
 #endif
-            }
-            tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, tmr_channel_value);
+}
+tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, tmr_channel_value);
 
-            if (result == 1) {
-                // 如果占空比PID的输出到达上限无法在增大输出占空比切换到频率PID控制
-                stage = duty_switch_stage;
-                stage_debug = duty_switch_stage;
-            }
+if (result == 1) {
+    // 如果占空比PID的输出到达上限无法在增大输出占空比切换到频率PID控制
+    stage = duty_switch_stage;
+    stage_debug = duty_switch_stage;
+}
 */
 /* add user code end 4 */
