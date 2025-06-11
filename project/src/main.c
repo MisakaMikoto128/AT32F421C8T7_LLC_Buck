@@ -132,19 +132,23 @@ float adc_to_target_scale[ADC_RANK_NUM] = {
 // LLC Duty比较器映射
 // (300-0)  -> (50%-0%) -> (150-0)
 // LLC 输入电流安全上限
-#define LLC_INPUT_CURRENT_UPPER_LIMIT 5.0f // 5A,TODO:这里限制要改，不然ADC测不到这么高。
+#define LLC_INPUT_CURRENT_UPPER_LIMIT 3.7f // 5A,TODO:这里限制要改，不然ADC测不到这么高。
 // LLC 输入电流下限
 #define LLC_INPUT_CURRENT_LOWER_LIMIT 0.0f // 0A
 // LLC 输入电流限制
-#define LLC_INPUT_CURRENT_OC_LIMIT (3.5f) // 4A，改成3.5A，因为ADC压根测不到4A。
+#define LLC_INPUT_CURRENT_OC_LIMIT (3.4f) // 4A，改成3.5A，因为ADC压根测不到4A。
 // LLC输出过压保护
 #define LLC_OV_ADC_VALUE(volt) ((volt) * SCALE_LLC_VOLT_TO_ADC_VALUE)
-uint32_t LLC_OV_THRESHOLD = LLC_OV_ADC_VALUE(320);
+uint32_t LLC_OV_THRESHOLD = LLC_OV_ADC_VALUE(280);
 // Buck输出过压保护
 #define BUCK_OV_ADC_VALUE(volt) ((volt) * SCALE_BUCK_VOLT_TO_ADC_VALUE)
 uint32_t BUCK_OV_THRESHOLD = BUCK_OV_ADC_VALUE(320);
 // LLC输入过流保护阈值，由于是霍尔元件，需要稍后初始化
 uint32_t LLC_OC_THRESHOLD = 2.5f * SCALE_LLC_CURR_TO_ADC_VALUE;
+uint32_t LLC_Devta_OC_THRESHOLD = LLC_INPUT_CURRENT_OC_LIMIT * SCALE_LLC_CURR_TO_ADC_VALUE;
+
+uint32_t llc_curr_oc_limit_adc_value_small = 0;
+uint32_t llc_curr_oc_limit_adc_value_upper = 0;
 
 // PID控制器实例
 Inc_PID_Q32_t llc_volt_pid;
@@ -227,8 +231,8 @@ void user_pid_init()
     llc_curr_freq_pid.iFmin = 10 << PID_SHIFT_14;                               // 放大
     llc_curr_freq_pid.iF    = llc_curr_freq_pid.iFmin;
     // 初始为最大频率最小占空比
-    llc_curr_freq_pid.P = 200 * 1;
-    llc_curr_freq_pid.I = 50 * 1;
+    llc_curr_freq_pid.P = 50 * 1;
+    llc_curr_freq_pid.I = 400 * 1;
     llc_curr_freq_pid.D = 1;
 
     llc_volt_freq_pid.iFmax = (LLC_PWM_PERIOD_UPPER_LIMIT + 1) << PID_SHIFT_14; // 1200放大
@@ -281,7 +285,7 @@ void scope_init();
 
 int stage                    = 0;
 int protect_type             = 0;     // 0:无保护，1:输入过流保护，2:输出过压保护
-float llc_volt_target        = 25.0f; // LLC目标电压，单位V
+float llc_volt_target        = 10.0f; // LLC目标电压，单位V
 bool llc_volt_target_changed = false; // LLC目标电压是否改变
 int stage_debug              = 0;
 uint32_t interrupt_cnt       = 0;
@@ -298,7 +302,7 @@ void set_llc_volt_target_to_adc_value_q32(float target_llc_volt)
     llc_volt_freq_pid.iTarget = value;
 }
 
-float get_llc_voit_from_adc_value()
+float get_llc_volt_from_adc_value()
 {
     // 将ADC值转换为基础电压值
     float voltage = filtered_adc[ADC_V_LLC_RANK_IDX] * SCALE_ADC_VALUE_TO_LLC_VOLT;
@@ -311,8 +315,29 @@ float get_llc_voit_from_adc_value()
     return voltage;
 }
 
+float get_llc_input_curr_from_adc_value()
+{
+    float curr = (filtered_adc[ADC_IIN_RANK_IDX] - adc_buffer_init[ADC_IIN_RANK_IDX]) * adc_to_target_scale[ADC_IIN_RANK_IDX];
+    return curr;
+}
+
+void power_source_launch()
+{
+    stage = 1;
+}
+
+void power_source_shutdown()
+{
+    stage = 4;
+}
+
+bool is_power_source_launched()
+{
+    return stage == 2;
+}
+
 #define COUNTOF(a)            (sizeof(a) / sizeof(*(a)))
-#define USART2_TX_BUFFER_SIZE (7)
+#define USART2_TX_BUFFER_SIZE (8)
 #define USART2_RX_BUFFER_SIZE (20)
 uint8_t usart2_tx_buffer[USART2_TX_BUFFER_SIZE];
 uint8_t usart2_rx_buffer[USART2_RX_BUFFER_SIZE];
@@ -421,6 +446,7 @@ int main(void)
     user_pid_init();
     // 设置过流保护阈值
     LLC_OC_THRESHOLD = llc_curr_to_adc_value(LLC_INPUT_CURRENT_UPPER_LIMIT);
+    LLC_Devta_OC_THRESHOLD = llc_curr_to_adc_value(LLC_INPUT_CURRENT_OC_LIMIT);
     // 初始LLC频率为最高频率
     llc_set_pwm_frequency(LLC_FREQUENCY_UPPER_LIMIT);
     // 初始LLC占空比
@@ -431,8 +457,13 @@ int main(void)
     tmr_output_enable(TMR1, TRUE);
     // 设置LLC目标电压
     set_llc_volt_target_to_adc_value_q32(llc_volt_target);
+
+    llc_curr_oc_limit_adc_value_small = llc_curr_to_adc_value(1.6f);
+    llc_curr_oc_limit_adc_value_small = llc_curr_oc_limit_adc_value_small << PID_SHIFT;
+    llc_curr_oc_limit_adc_value_upper = llc_curr_to_adc_value(LLC_INPUT_CURRENT_OC_LIMIT);
+    llc_curr_oc_limit_adc_value_upper = llc_curr_oc_limit_adc_value_upper << PID_SHIFT;
     // 设置阶段为1，表示初始化完成
-    stage = 1;
+    //power_source_launch();
     // 串口相关：数据位个数9位(包含奇偶校验位)，奇校验，1位停止位，9600波特率
     usart_interrupt_enable(USART1, USART_RDBF_INT, TRUE);
     usart_interrupt_enable(USART1, USART_TDBE_INT, FALSE);
@@ -489,26 +520,43 @@ int main(void)
             if (crc_res != 0) {
                 break;
             }
-
-            uint8_t value = usart2_rx_buffer[0];
-            if (value > 220) {
-                value = 220;
-            } else if (value < 10) {
-                value = 10;
+            uint8_t func  = usart2_rx_buffer[0];
+            uint8_t value = usart2_rx_buffer[1];
+            switch (func) {
+                case 0x20:
+                    if (value > 220) {
+                        value = 220;
+                    } else if (value < 10) {
+                        value = 10;
+                    }
+                    llc_volt_target         = value;
+                    llc_volt_target_changed = true;
+                    break;
+                case 0x80:
+                    if (value == 0xAA) {
+                        power_source_launch();
+                    } else if (
+                        value == 0xBB) {
+                        power_source_shutdown();
+                    }
+                    break;
+                default:
+                    break;
             }
-            llc_volt_target         = value;
-            llc_volt_target_changed = true;
 
-            float llc_volt = get_llc_voit_from_adc_value();
-            int idx        = 0;
+            float llc_volt             = get_llc_volt_from_adc_value();
+            float llc_input_curr       = get_llc_input_curr_from_adc_value();
+            int16_t llc_volt_u16       = llc_volt * 100;
+            int16_t llc_input_curr_u16 = llc_input_curr * 100;
+            int idx                    = 0;
 
-            usart2_tx_buffer[idx++] = 0;
-            usart2_tx_buffer[idx++] = 0;
-            usart2_tx_buffer[idx++] = 0;
-            usart2_tx_buffer[idx++] = 0;
-            usart2_tx_buffer[idx++] = 0;
-            usart2_tx_buffer[idx++] = 0;
-            crc_res                 = CRC16_CCITT_FALSE(usart2_tx_buffer, 4);
+            usart2_tx_buffer[idx++] = 0x80;
+            usart2_tx_buffer[idx++] = is_power_source_launched() ? 0xAA : 0xBB;
+            usart2_tx_buffer[idx++] = llc_volt_u16 >> 8;
+            usart2_tx_buffer[idx++] = llc_volt_u16 & 0xFF;
+            usart2_tx_buffer[idx++] = llc_input_curr_u16 >> 8;
+            usart2_tx_buffer[idx++] = llc_input_curr_u16 & 0xFF;
+            crc_res                 = CRC16_CCITT_FALSE(usart2_tx_buffer, idx);
             usart2_tx_buffer[idx++] = crc_res & 0xFF;
             usart2_tx_buffer[idx++] = crc_res >> 8;
 
@@ -543,12 +591,12 @@ void adc_dma_handler()
     }
 
     // 将ADC值转换为电压、电流值
-    votlage_debug[ADC_VIN_RANK_IDX]      = filtered_adc[ADC_VIN_RANK_IDX] * adc_to_target_scale[ADC_VIN_RANK_IDX];
-    votlage_debug[ADC_IO_RANK_IDX]       = (filtered_adc[ADC_IO_RANK_IDX] - adc_buffer_init[ADC_IO_RANK_IDX]) * adc_to_target_scale[ADC_IO_RANK_IDX];
-    votlage_debug[ADC_VO_TOTAL_RANK_IDX] = filtered_adc[ADC_VO_TOTAL_RANK_IDX] * adc_to_target_scale[ADC_VO_TOTAL_RANK_IDX];
-    votlage_debug[ADC_VO_MID_RANK_IDX]   = filtered_adc[ADC_VO_MID_RANK_IDX] * adc_to_target_scale[ADC_VO_MID_RANK_IDX];
-    votlage_debug[ADC_IIN_RANK_IDX]      = (filtered_adc[ADC_IIN_RANK_IDX] - adc_buffer_init[ADC_IIN_RANK_IDX]) * adc_to_target_scale[ADC_IIN_RANK_IDX];
-    votlage_debug[ADC_V_LLC_RANK_IDX]    = filtered_adc[ADC_V_LLC_RANK_IDX] * adc_to_target_scale[ADC_V_LLC_RANK_IDX];
+    //    votlage_debug[ADC_VIN_RANK_IDX]      = filtered_adc[ADC_VIN_RANK_IDX] * adc_to_target_scale[ADC_VIN_RANK_IDX];
+    //    votlage_debug[ADC_IO_RANK_IDX]       = (filtered_adc[ADC_IO_RANK_IDX] - adc_buffer_init[ADC_IO_RANK_IDX]) * adc_to_target_scale[ADC_IO_RANK_IDX];
+    //    votlage_debug[ADC_VO_TOTAL_RANK_IDX] = filtered_adc[ADC_VO_TOTAL_RANK_IDX] * adc_to_target_scale[ADC_VO_TOTAL_RANK_IDX];
+    //    votlage_debug[ADC_VO_MID_RANK_IDX]   = filtered_adc[ADC_VO_MID_RANK_IDX] * adc_to_target_scale[ADC_VO_MID_RANK_IDX];
+    //    votlage_debug[ADC_IIN_RANK_IDX]      = (filtered_adc[ADC_IIN_RANK_IDX] - adc_buffer_init[ADC_IIN_RANK_IDX]) * adc_to_target_scale[ADC_IIN_RANK_IDX];
+    //    votlage_debug[ADC_V_LLC_RANK_IDX]    = filtered_adc[ADC_V_LLC_RANK_IDX] * adc_to_target_scale[ADC_V_LLC_RANK_IDX];
     // 定点数计算：adc_value * scale_factor >> 15
     // votlage_debug[i] = (adc_buffer[i] * VOLTAGE_SCALE_FACTOR_Q15 + 0x4000) >> 15;
 
@@ -574,21 +622,41 @@ void adc_dma_handler()
     static uint32_t tmr_channel_value = 0;
     static uint32_t tmr_period_value  = 0;
     static int32_t iF                 = 0;
+    static int pid_stage              = 0;
+    static int32_t delta_curr = 0;
+    static int32_t last_curr_adc_value = 0;
+
+
+
+    delta_curr = filtered_adc[ADC_IIN_RANK_IDX] - last_curr_adc_value;
+    last_curr_adc_value = filtered_adc[ADC_IIN_RANK_IDX];
+
+    if (delta_curr > 1000 || last_curr_adc_value >= LLC_Devta_OC_THRESHOLD) {
+        llc_volt_pid.iFmax = llc_curr_oc_limit_adc_value_small; // 放大
+        interrupt_cnt      = 0;
+    }
+    
+    if (interrupt_cnt == 7000) {
+        llc_volt_pid.iFmax = llc_curr_oc_limit_adc_value_upper; // 放大
+    }
+
     switch (stage) {
         case 0:
             // 初始化阶段
             break;
-        case 1:
-            // Inc_PID_Q32_Set_DeltaLimit(&llc_volt_pid, 100, -100);
-            // Inc_PID_Q32_Set_DeltaLimit(&llc_curr_freq_pid, 100, -100);
+        case 1: {
+            llc_volt_pid.iFmax = llc_curr_oc_limit_adc_value_small; // 放大
+            // Inc_PID_Q32_Set_DeltaLimit(&llc_volt_pid, 500, -500);
+            // Inc_PID_Q32_Set_DeltaLimit(&llc_curr_freq_pid, 10, -10);
             // 使能输出，但是为最低电流
             llc_output_enable();
             // llc_curr_freq_pid.iTarget = 3259 + 0;
             interrupt_cnt = 0;
             stage         = 2;
+            pid_stage     = 0;
             // 初始化一下这个值，避免滤波问题。
             iF = llc_curr_freq_pid.iF;
-            break;
+        } break;
         case 2:
             // 正常运行阶段，频率PID控制
             // 当前电压低于目标电压则会增大目标电流

@@ -212,6 +212,11 @@
           <WinNumber>2</WinNumber>
           <ItemText>llc_volt_target_changed,0x0A</ItemText>
         </Ww>
+        <Ww>
+          <count>6</count>
+          <WinNumber>2</WinNumber>
+          <ItemText>llc_curr_oc_limit_adc_value_upper,0x0A</ItemText>
+        </Ww>
       </WatchWindow2>
       <Tracepoint>
         <THDelay>0</THDelay>
