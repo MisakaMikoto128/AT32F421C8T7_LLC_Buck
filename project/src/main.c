@@ -279,6 +279,7 @@ float llc_volt_target        = 10.0f; // LLC目标电压，单位V
 bool llc_volt_target_changed = false; // LLC目标电压是否改变
 int stage_debug              = 0;
 uint32_t interrupt_cnt       = 0;
+uint32_t oc_cnt              = 0;
 uint32_t interrupt_pre_ticks = 0;
 
 void set_llc_volt_target_to_adc_value_q32(float target_llc_volt)
@@ -597,9 +598,15 @@ void adc_dma_handler()
     }
 
     if (adc_buffer[ADC_IIN_RANK_IDX] > LLC_OC_THRESHOLD) {
-        // LLC输入过流保护
-        disable_all_output();
-        protect_type = 1; // 设置保护类型为输入过流保护
+        oc_cnt++; // 10us
+        if (oc_cnt > 1000) {
+            // 10ms
+            // LLC输入过流保护
+            disable_all_output();
+            protect_type = 1; // 设置保护类型为输入过流保护
+        }
+    } else {
+        oc_cnt = 0;
     }
 
     // 更新PID采样值
@@ -640,6 +647,7 @@ void adc_dma_handler()
             interrupt_cnt = 0;
             stage         = 2;
             pid_stage     = 0;
+            protect_type  = 0;
             // 初始化一下这个值，避免滤波问题。
             iF = llc_curr_freq_pid.iF;
         } break;
@@ -653,11 +661,6 @@ void adc_dma_handler()
             Inc_PID_Q32_Update_AddDelta(&llc_curr_freq_pid);
             // 超调抑制方法0：啥也不做，PID参数抑制超调，大概率是电压环的P参数过大。
             iF = llc_curr_freq_pid.iF;
-#define __SHIFT 3 // 相当于除以8的滤波系数
-            // 超调抑制方法4：引入目标值滤波器，通过滤波器减少电压超调
-            // 定点数一阶滤波: y[n] = (x[n] + 7*y[n-1]) / 8
-            iF = (llc_curr_freq_pid.iF + (iF << __SHIFT) - iF) >> __SHIFT;
-#endif //! OVERSHOOT_SUPPRESSION_METHOD
 
             // @Apply PID
             // 将频率PID的输出目标频率的对应PERIOD寄存器值作为LLC PWM定时器的PERIOD寄存器值，默认为50%占空比
