@@ -43,6 +43,7 @@
 #include <stdlib.h>
 #include "crc.h"
 #include "ccommon.h"
+#include "wk_adc.h"
 /* add user code end private includes */
 
 /* private typedef -----------------------------------------------------------*/
@@ -136,7 +137,7 @@ float adc_to_target_scale[ADC_RANK_NUM] = {
 // LLC 输入电流下限
 #define LLC_INPUT_CURRENT_LOWER_LIMIT 0.0f // 0A
 // LLC 输入电流限制
-#define LLC_INPUT_CURRENT_OC_LIMIT (3.4f) // 4A，改成3.5A，因为ADC压根测不到4A。
+#define LLC_INPUT_CURRENT_OC_LIMIT (3.0f) // 4A，改成3.5A，因为ADC压根测不到4A。
 // LLC输出过压保护
 #define LLC_OV_ADC_VALUE(volt) ((volt) * SCALE_LLC_VOLT_TO_ADC_VALUE)
 uint32_t LLC_OV_THRESHOLD = LLC_OV_ADC_VALUE(280);
@@ -221,8 +222,8 @@ void user_pid_init()
     llc_volt_pid.iFmax                      = llc_curr_oc_limit_adc_value << PID_SHIFT; // 放大
     llc_volt_pid.iFmin                      = llc_curr_lower_limit_adc_value << PID_SHIFT;
     llc_volt_pid.iF                         = llc_curr_zero_limit_adc_value << PID_SHIFT;
-    llc_volt_pid.P                          = 100 * 2;
-    llc_volt_pid.I                          = 1;
+    llc_volt_pid.P                          = 20;
+    llc_volt_pid.I                          = 600;
     llc_volt_pid.D                          = 10;
 
     llc_curr_freq_pid.iFmax = (LLC_PWM_PERIOD_UPPER_LIMIT + 1) << PID_SHIFT_14; // 1200放大
@@ -274,9 +275,9 @@ uint8_t buf[2048]; // 定义全局变量
 void scope_init();
 
 int stage                    = 0;
-int protect_type             = 0;     // 0:无保护，1:输入过流保护，2:输出过压保护
-float llc_volt_target        = 10.0f; // LLC目标电压，单位V
-bool llc_volt_target_changed = false; // LLC目标电压是否改变
+int protect_type             = 0;      // 0:无保护，1:输入过流保护，2:输出过压保护
+float llc_volt_target        = 200.0f; // LLC目标电压，单位V
+bool llc_volt_target_changed = false;  // LLC目标电压是否改变
 int stage_debug              = 0;
 uint32_t interrupt_cnt       = 0;
 uint32_t oc_cnt              = 0;
@@ -290,6 +291,7 @@ void set_llc_volt_target_to_adc_value_q32(float target_llc_volt)
     }
     uint32_t value       = setting_volt * SCALE_LLC_VOLT_TO_ADC_VALUE;
     llc_volt_pid.iTarget = value;
+    // llc_volt_pid.iFmax   = llc_curr_oc_limit_adc_value_small;
 }
 
 float get_llc_volt_from_adc_value()
@@ -297,7 +299,7 @@ float get_llc_volt_from_adc_value()
     // 将ADC值转换为基础电压值
     float voltage = filtered_adc[ADC_V_LLC_RANK_IDX] * SCALE_ADC_VALUE_TO_LLC_VOLT;
     // 应用校准公式：实际电压 = (测量电压 - 3.6903) / 0.9908
-    // 这个公式是set_llc_volt_target_to_adc_value_q32中公式的反向转换
+    // 这个公式是@set_llc_volt_target_to_adc_value_q32中公式的反向转换
     voltage = (voltage - 3.6903f) / 0.9908f;
     if (voltage < 0) {
         voltage = 0;
@@ -400,7 +402,7 @@ int main(void)
 
     /* init adc1 function. */
     // 等待ADC电源稳定，避免校准误差
-    wk_delay_ms(200);
+    wk_delay_ms(100);
     wk_adc1_init();
 
     /* init tmr1 function. */
@@ -430,8 +432,12 @@ int main(void)
     dma_interrupt_enable(DMA1_CHANNEL1, DMA_DTERR_INT, TRUE);
     // 延时一段时间获取ADC初始值，用于校准霍尔电流传感器
     wk_delay_ms(200);
+    __disable_irq();
     // 保存初始值
     memcpy((void *)adc_buffer_init, (void *)filtered_adc, sizeof(adc_buffer_init));
+    __enable_irq();
+
+    ULOG_INFO("ADC_IIN_RANK_IDX %u", adc_buffer_init[ADC_IIN_RANK_IDX]);
     // 初始化PID控制器
     user_pid_init();
     // 设置过流保护阈值
@@ -445,15 +451,14 @@ int main(void)
     buck_set_tmr_channel_value(0);
     // 设置完LLC的频率后再使能LLC的驱动PWM输出，消除暂态
     tmr_output_enable(TMR1, TRUE);
-    // 设置LLC目标电压
-    set_llc_volt_target_to_adc_value_q32(llc_volt_target);
-
     llc_curr_oc_limit_adc_value_small = llc_curr_to_adc_value(1.6f);
     llc_curr_oc_limit_adc_value_small = llc_curr_oc_limit_adc_value_small << PID_SHIFT;
     llc_curr_oc_limit_adc_value_upper = llc_curr_to_adc_value(LLC_INPUT_CURRENT_OC_LIMIT);
     llc_curr_oc_limit_adc_value_upper = llc_curr_oc_limit_adc_value_upper << PID_SHIFT;
+    // 设置LLC目标电压
+    set_llc_volt_target_to_adc_value_q32(llc_volt_target);
     // 设置阶段为1，表示初始化完成
-    // power_source_launch();
+    power_source_launch();
     // 串口相关：数据位个数9位(包含奇偶校验位)，奇校验，1位停止位，9600波特率
     usart_interrupt_enable(USART1, USART_RDBF_INT, TRUE);
     usart_interrupt_enable(USART1, USART_TDBE_INT, FALSE);
@@ -467,22 +472,28 @@ int main(void)
     usart_interrupt_enable(USART2, USART_PERR_INT, TRUE);
     usart_interrupt_enable(USART2, USART_IDLE_INT, TRUE);
     uint16_t ms_rec = 0;
+
+    wk_delay_ms(4000);
+
+    power_source_shutdown();
+
     /* add user code end 2 */
 
     while (1) {
         /* add user code begin 3 */
         // 发送数据到JScope,12字节
         // SEGGER_RTT_Write(1, &rtt_data, sizeof(rtt_data));
-        if (TICK_COUNT_VALUE - ms_rec > 1000 * 60) {
-            ms_rec = TICK_COUNT_VALUE;
-            // ULOG_INFO("I %f,reg %u,mid %d", votlage_debug[ADC_IIN_RANK_IDX],
-            //           adc_buffer[ADC_IIN_RANK_IDX], adc_buffer_init[ADC_IIN_RANK_IDX]);
+        if (TICK_COUNT_VALUE - ms_rec > 1000 * 6) {
+            ms_rec                          = TICK_COUNT_VALUE;
+            votlage_debug[ADC_IIN_RANK_IDX] = (filtered_adc[ADC_IIN_RANK_IDX] - adc_buffer_init[ADC_IIN_RANK_IDX]) * adc_to_target_scale[ADC_IIN_RANK_IDX];
+            ULOG_INFO("I %12f,reg %8u,mid %8d", votlage_debug[ADC_IIN_RANK_IDX],
+                      adc_buffer[ADC_IIN_RANK_IDX], adc_buffer_init[ADC_IIN_RANK_IDX]);
 
             // 目标电压，当前LLC电压ADC值，当前LLC电压计算值
-            ULOG_INFO("LLC V: target=%fV, adc=%u, calc=%fV",
-                      llc_volt_target,
-                      filtered_adc[ADC_V_LLC_RANK_IDX],
-                      votlage_debug[ADC_V_LLC_RANK_IDX]);
+            // ULOG_INFO("LLC V: target=%fV, adc=%u, calc=%fV",
+            //           llc_volt_target,
+            //           filtered_adc[ADC_V_LLC_RANK_IDX],
+            //           votlage_debug[ADC_V_LLC_RANK_IDX]);
         }
 
         if (llc_volt_target_changed) {
@@ -572,13 +583,16 @@ int main(void)
 
 void adc_dma_handler()
 {
-    interrupt_cnt++;
 
 #define FILTER_SHIFT 3 // 相当于除以8的滤波系数
+    tmr_output_enable(TMR15, FALSE);
     for (int i = 0; i < ADC_RANK_NUM; i++) {
         // 定点数一阶滤波: y[n] = (x[n] + 7*y[n-1]) / 8
         filtered_adc[i] = (adc_buffer[i] + ((uint32_t)filtered_adc[i] << FILTER_SHIFT) - filtered_adc[i]) >> FILTER_SHIFT;
     }
+    tmr_output_enable(TMR15, TRUE);
+
+    interrupt_cnt++;
 
     // 将ADC值转换为电压、电流值
     //    votlage_debug[ADC_VIN_RANK_IDX]      = filtered_adc[ADC_VIN_RANK_IDX] * adc_to_target_scale[ADC_VIN_RANK_IDX];
@@ -595,6 +609,7 @@ void adc_dma_handler()
         // LLC输出过压或Buck过压，禁用所有输出
         disable_all_output();
         protect_type = 2; // 设置保护类型为输出过压保护
+        stage        = 0;
     }
 
     if (adc_buffer[ADC_IIN_RANK_IDX] > LLC_OC_THRESHOLD) {
@@ -624,21 +639,20 @@ void adc_dma_handler()
     delta_curr          = filtered_adc[ADC_IIN_RANK_IDX] - last_curr_adc_value;
     last_curr_adc_value = filtered_adc[ADC_IIN_RANK_IDX];
 
-    if (delta_curr > 1000 || last_curr_adc_value >= LLC_Devta_OC_THRESHOLD) {
-        llc_volt_pid.iFmax = llc_curr_oc_limit_adc_value_small; // 放大
-        interrupt_cnt      = 0;
-    }
+    //    if (delta_curr > 1000 || last_curr_adc_value >= LLC_Devta_OC_THRESHOLD) {
+    //        llc_volt_pid.iFmax = llc_curr_oc_limit_adc_value_small; // 放大
+    //        interrupt_cnt      = 0;
+    //    }
 
-    if (interrupt_cnt == 7000) {
-        llc_volt_pid.iFmax = llc_curr_oc_limit_adc_value_upper; // 放大
-    }
+    // if (interrupt_cnt == 7000) {
+    //     llc_volt_pid.iFmax = llc_curr_oc_limit_adc_value_upper; // 放大
+    // }
 
     switch (stage) {
         case 0:
             // 初始化阶段
             break;
         case 1: {
-            llc_volt_pid.iFmax = llc_curr_oc_limit_adc_value_small; // 放大
             // Inc_PID_Q32_Set_DeltaLimit(&llc_volt_pid, 500, -500);
             // Inc_PID_Q32_Set_DeltaLimit(&llc_curr_freq_pid, 10, -10);
             // 使能输出，但是为最低电流
@@ -648,8 +662,7 @@ void adc_dma_handler()
             stage         = 2;
             pid_stage     = 0;
             protect_type  = 0;
-            // 初始化一下这个值，避免滤波问题。
-            iF = llc_curr_freq_pid.iF;
+            // volt_iF = llc_volt_pid.iF;
         } break;
         case 2:
             // 正常运行阶段，频率PID控制
