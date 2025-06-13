@@ -8,7 +8,8 @@
         "files.associations": {
             "pid_fp32.h": "c",
             "type_traits": "c",
-            "xtr1common": "c"
+            "xtr1common": "c",
+            "log.h": "c"
         }
     },
     "extensions": {}
