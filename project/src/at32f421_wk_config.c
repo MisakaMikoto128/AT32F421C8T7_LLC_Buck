@@ -212,12 +212,12 @@ void wk_nvic_config(void)
   NVIC_SetPriority(DebugMonitor_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 0, 0));
   NVIC_SetPriority(PendSV_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 0, 0));
   NVIC_SetPriority(SysTick_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 15, 0));
-  nvic_irq_enable(PVM_IRQn, 1, 0);
-  nvic_irq_enable(DMA1_Channel1_IRQn, 0, 0);
-  nvic_irq_enable(TMR1_CH_IRQn, 1, 0);
-  nvic_irq_enable(TMR15_GLOBAL_IRQn, 1, 0);
-  nvic_irq_enable(USART1_IRQn, 1, 0);
-  nvic_irq_enable(USART2_IRQn, 1, 0);
+  nvic_irq_enable(PVM_IRQn, 0, 0);
+  nvic_irq_enable(DMA1_Channel1_IRQn, 1, 0);
+  nvic_irq_enable(TMR1_CH_IRQn, 2, 0);
+  nvic_irq_enable(TMR15_GLOBAL_IRQn, 2, 0);
+  nvic_irq_enable(USART1_IRQn, 2, 0);
+  nvic_irq_enable(USART2_IRQn, 2, 0);
 }
 
 /* add user code begin 1 */

@@ -185,7 +185,7 @@ void wk_tmr15_init(void)
   tmr_output_struct.oc_idle_state = FALSE;
   tmr_output_struct.occ_idle_state = FALSE;
   tmr_output_channel_config(TMR15, TMR_SELECT_CHANNEL_1, &tmr_output_struct);
-  tmr_channel_value_set(TMR15, TMR_SELECT_CHANNEL_1, 600);
+  tmr_channel_value_set(TMR15, TMR_SELECT_CHANNEL_1, 60);
   tmr_output_channel_buffer_enable(TMR15, TMR_SELECT_CHANNEL_1, TRUE);
 
   tmr_output_channel_immediately_set(TMR15, TMR_SELECT_CHANNEL_1, FALSE);
@@ -199,7 +199,7 @@ void wk_tmr15_init(void)
   tmr_output_struct.oc_idle_state = FALSE;
   tmr_output_struct.occ_idle_state = FALSE;
   tmr_output_channel_config(TMR15, TMR_SELECT_CHANNEL_2, &tmr_output_struct);
-  tmr_channel_value_set(TMR15, TMR_SELECT_CHANNEL_2, 600);
+  tmr_channel_value_set(TMR15, TMR_SELECT_CHANNEL_2, 60);
   tmr_output_channel_buffer_enable(TMR15, TMR_SELECT_CHANNEL_2, TRUE);
 
   tmr_output_channel_immediately_set(TMR15, TMR_SELECT_CHANNEL_2, FALSE);

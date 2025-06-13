@@ -220,7 +220,8 @@ void SysTick_Handler(void)
 
   /* add user code end SysTick_IRQ 1 */
 }
-
+#include "log.h"
+void llc_output_disable();
 /**
   * @brief  this function handles PVM through EXINT Line detect handler.
   * @param  none
@@ -229,7 +230,7 @@ void SysTick_Handler(void)
 void PVM_IRQHandler(void)
 {
   /* add user code begin PVM_IRQ 0 */
-
+llc_output_disable();
   /* add user code end PVM_IRQ 0 */
   /* add user code begin PVM_IRQ 1 */
 
