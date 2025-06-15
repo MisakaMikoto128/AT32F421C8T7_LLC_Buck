@@ -417,14 +417,15 @@ int main(void)
     uint16_t period     = period_min;
 
     /* add user code end 2 */
-
+        Debug_Printf("[\r\n")
     while (1) {
         /* add user code begin 3 */
         llc_curr_freq_pid.iFmax = period << PID_SHIFT_14; // 1200放大
         wk_delay_ms(500);
-        Debug_Printf("%8d,%8d,%8d", period, filtered_adc[ADC_IIN_RANK_IDX], adc_buffer_init[ADC_IIN_RANK_IDX])
+        Debug_Printf("[%8d,%8d,%8d]\r\n", period, filtered_adc[ADC_IIN_RANK_IDX], adc_buffer_init[ADC_IIN_RANK_IDX])
             period++;
         if (period > period_max) {
+            Debug_Printf("\r\n]")
             period = period_min;
         }
         /* add user code end 3 */
@@ -455,7 +456,7 @@ void adc_dma_handler()
 
     if (adc_buffer[ADC_IIN_RANK_IDX] > LLC_OC_THRESHOLD) {
         oc_cnt++; // 10us
-        if (oc_cnt > 15) {
+        if (oc_cnt > 10) {
             // 10ms
             // LLC输入过流保护
             disable_all_output();
@@ -487,7 +488,7 @@ void adc_dma_handler()
             // 当前电压低于目标电压则会增大目标电流
             Inc_PID_Q32_Update_AddDelta(&llc_volt_pid);
             // 将电压PID的输出目标电流的对应ADC值作为频率PID的目标
-            llc_curr_freq_pid.iTarget = 50;
+            llc_curr_freq_pid.iTarget = 500;
             // 当前电流低于目标电流则会增大PERIOD寄存器值从而降低频率，使得频率靠近谐振点从而提高电流
             Inc_PID_Q32_Update_AddDelta(&llc_curr_freq_pid);
             // 超调抑制方法0：啥也不做，PID参数抑制超调，大概率是电压环的P参数过大。
