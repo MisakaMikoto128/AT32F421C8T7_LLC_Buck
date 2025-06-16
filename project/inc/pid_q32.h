@@ -43,6 +43,7 @@ void Inc_PID_Q32_Init(pInc_PID_Q32_t self);
 int Inc_PID_Q32_Update_AddDelta(pInc_PID_Q32_t self);
 int Inc_PID_Q32_Update_SubDelta(pInc_PID_Q32_t self);
 void Inc_PID_Q32_Set_DeltaLimit(pInc_PID_Q32_t self, int32_t maxDelta, int32_t minDelta);
+int Inc_PID_Q32_Reset(pInc_PID_Q32_t self);
 #ifdef __cplusplus
 }
 #endif
