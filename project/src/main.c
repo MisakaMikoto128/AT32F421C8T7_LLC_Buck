@@ -125,7 +125,7 @@ float adc_to_target_scale[ADC_RANK_NUM] = {
 // LLC PWM频率上限
 #define LLC_FREQUENCY_UPPER_LIMIT 400000UL
 // LLC PWM频率下限
-#define LLC_FREQUENCY_LOWER_LIMIT 200000UL // 116000UL
+#define LLC_FREQUENCY_LOWER_LIMIT 170000UL // 116000UL
 // LLC PWM周期寄存器上限
 #define LLC_PWM_PERIOD_UPPER_LIMIT ((TMR1_CLK_FREQ / LLC_FREQUENCY_LOWER_LIMIT) - 1) // 1000-1
 // LLC PWM周期寄存器下限
@@ -352,7 +352,7 @@ int main(void)
 
     /* init adc1 function. */
     // 等待ADC电源稳定，避免校准误差
-    wk_delay_ms(100);
+    wk_delay_ms(1000);
     wk_adc1_init();
 
     /* init tmr1 function. */
@@ -367,7 +367,7 @@ int main(void)
     ULOG_INFO("AT32F421 WK Demo Start");
 
     // 关闭所有PWM输出，避免暂态
-    disable_all_output();
+    llc_output_enable();
     // 启动定时器
     tmr_counter_enable(TMR15, TRUE);
     tmr_counter_enable(TMR1, TRUE);
@@ -417,16 +417,20 @@ int main(void)
     uint16_t period     = period_min;
 
     /* add user code end 2 */
-        Debug_Printf("[\r\n")
+        Debug_Printf("[\r\n");
     while (1) {
         /* add user code begin 3 */
         llc_curr_freq_pid.iFmax = period << PID_SHIFT_14; // 1200放大
-        wk_delay_ms(500);
-        Debug_Printf("[%8d,%8d,%8d]\r\n", period, filtered_adc[ADC_IIN_RANK_IDX], adc_buffer_init[ADC_IIN_RANK_IDX])
+        wk_delay_ms(80);
+        Debug_Printf("[%8d,%8d,%8d,%8d]\r\n", period, 
+        filtered_adc[ADC_IIN_RANK_IDX], 
+        adc_buffer_init[ADC_IIN_RANK_IDX],
+        llc_curr_freq_pid.iF >> PID_SHIFT_14);
             period++;
         if (period > period_max) {
-            Debug_Printf("\r\n]")
+            Debug_Printf("\r\n]");
             period = period_min;
+            while(1);
         }
         /* add user code end 3 */
     }
@@ -459,7 +463,7 @@ void adc_dma_handler()
         if (oc_cnt > 10) {
             // 10ms
             // LLC输入过流保护
-            disable_all_output();
+            llc_output_enable();
             protect_type = 1; // 设置保护类型为输入过流保护
         }
     } else {
