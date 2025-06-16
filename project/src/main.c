@@ -41,9 +41,10 @@
 #include "pid_q32.h"
 #include <string.h>
 #include <stdlib.h>
-#include "crc.h"
 #include "ccommon.h"
-#include "wk_adc.h"
+#include "log.h"
+#include "communication.h"
+#define TICK_COUNT_VALUE (SysTick->VAL)
 /* add user code end private includes */
 
 /* private typedef -----------------------------------------------------------*/
@@ -137,11 +138,12 @@ float adc_to_target_scale[ADC_RANK_NUM] = {
 // LLC Duty比较器映射
 // (300-0)  -> (50%-0%) -> (150-0)
 // LLC 输入电流安全上限
-#define LLC_INPUT_CURRENT_UPPER_LIMIT 5.0f // 5A,TODO:这里限制要改，不然ADC测不到这么高。
+#define LLC_INPUT_CURRENT_UPPER_LIMIT 5.0f // 5A。
 // LLC 输入电流下限
 #define LLC_INPUT_CURRENT_LOWER_LIMIT 0.0f // 0A
 // LLC 输入电流限制
-#define LLC_INPUT_CURRENT_OC_LIMIT (4.8f) // 4A，改成3.5A，因为ADC压根测不到4A。
+#define LLC_INPUT_CURRENT_OC_LIMIT (4.8f) // 4A。
+
 // LLC输出过压保护
 #define LLC_OV_ADC_VALUE(volt) ((volt) * SCALE_LLC_VOLT_TO_ADC_VALUE)
 uint32_t LLC_OV_THRESHOLD = LLC_OV_ADC_VALUE(220);
@@ -149,11 +151,7 @@ uint32_t LLC_OV_THRESHOLD = LLC_OV_ADC_VALUE(220);
 #define BUCK_OV_ADC_VALUE(volt) ((volt) * SCALE_BUCK_VOLT_TO_ADC_VALUE)
 uint32_t BUCK_OV_THRESHOLD = BUCK_OV_ADC_VALUE(320);
 // LLC输入过流保护阈值，由于是霍尔元件，需要稍后初始化
-uint32_t LLC_OC_THRESHOLD       = 2.5f * SCALE_LLC_CURR_TO_ADC_VALUE;
-uint32_t LLC_Devta_OC_THRESHOLD = LLC_INPUT_CURRENT_OC_LIMIT * SCALE_LLC_CURR_TO_ADC_VALUE;
-
-uint32_t llc_curr_oc_limit_adc_value_small = 0;
-uint32_t llc_curr_oc_limit_adc_value_upper = 0;
+uint32_t LLC_OC_THRESHOLD = 2.5f * SCALE_LLC_CURR_TO_ADC_VALUE;
 
 // PID控制器实例
 Inc_PID_Q32_t llc_volt_pid;
@@ -214,12 +212,8 @@ uint32_t llc_curr_to_adc_value(float curr)
     return (uint32_t)(curr * SCALE_LLC_CURR_TO_ADC_VALUE + adc_buffer_init[ADC_IIN_RANK_IDX]);
 }
 
-void user_pid_init()
+void user_pid_param_set()
 {
-    // Init all fields as zero.
-    Inc_PID_Q32_Init(&llc_volt_pid);
-    Inc_PID_Q32_Init(&llc_curr_freq_pid);
-
     uint32_t llc_curr_oc_limit_adc_value    = llc_curr_to_adc_value(LLC_INPUT_CURRENT_OC_LIMIT);
     uint32_t llc_curr_lower_limit_adc_value = llc_curr_to_adc_value(-0.05f);
     uint32_t llc_curr_zero_limit_adc_value  = llc_curr_to_adc_value(0);
@@ -239,6 +233,14 @@ void user_pid_init()
     llc_curr_freq_pid.D = 1;
 }
 
+void user_pid_init()
+{
+    // Init all fields as zero.
+    Inc_PID_Q32_Init(&llc_volt_pid);
+    Inc_PID_Q32_Init(&llc_curr_freq_pid);
+    user_pid_param_set();
+}
+
 void llc_output_enable()
 {
     tmr_channel_enable(TMR1, TMR_SELECT_CHANNEL_2, TRUE);
@@ -249,45 +251,21 @@ void llc_output_disable()
 {
     tmr_channel_enable(TMR1, TMR_SELECT_CHANNEL_2, FALSE);
     tmr_channel_enable(TMR1, TMR_SELECT_CHANNEL_2C, FALSE);
+    tmr_period_value_set(TMR1, LLC_PWM_PERIOD_LOWER_LIMIT);
+    tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, 0);
 }
 
-void buck_output_enable()
-{
-    tmr_channel_enable(TMR15, TMR_SELECT_CHANNEL_2, TRUE);
-}
+int stage                       = 0;
+int protect_type                = 0;     // 0:无保护，1:输入过流保护，2:输出过压保护
+float llc_volt_target           = 10.0f; // LLC目标电压，单位V
+bool llc_volt_target_changed    = false; // LLC目标电压是否改变
+int stage_debug                 = 0;
+uint32_t interrupt_cnt          = 0;
+uint32_t oc_cnt                 = 0;
+uint32_t interrupt_pre_ticks    = 0;
+uint32_t power_wdg_cnt          = 0;
+int32_t llc_curr_freq_pid_limit = 0;
 
-void buck_output_disable()
-{
-    tmr_channel_enable(TMR15, TMR_SELECT_CHANNEL_2, FALSE);
-}
-
-void disable_all_output()
-{
-    llc_output_disable();
-    buck_output_disable();
-}
-
-void enable_all_output()
-{
-    llc_output_enable();
-    buck_output_enable();
-}
-
-#include "log.h"
-uint8_t buf[2048]; // 定义全局变量
-
-void scope_init();
-
-int stage                    = 0;
-int protect_type             = 0;     // 0:无保护，1:输入过流保护，2:输出过压保护
-float llc_volt_target        = 10.0f; // LLC目标电压，单位V
-bool llc_volt_target_changed = false; // LLC目标电压是否改变
-int stage_debug              = 0;
-uint32_t interrupt_cnt       = 0;
-uint32_t oc_cnt              = 0;
-uint32_t interrupt_pre_ticks = 0;
-uint32_t power_wdg_cnt       = 0;
-int32_t llc_curr_freq_pid_limit       = 0;
 void set_llc_volt_target_to_adc_value_q32(float target_llc_volt)
 {
     float setting_volt = 0.9908f * target_llc_volt + 3.6903f;
@@ -298,15 +276,14 @@ void set_llc_volt_target_to_adc_value_q32(float target_llc_volt)
     if (setting_volt > 220) {
         setting_volt = 220;
     }
-    int32_t v   = 220 - setting_volt;
-    v           = v < 0 ? 0 : v;
+    int32_t v               = 220 - setting_volt;
+    v                       = v < 0 ? 0 : v;
     llc_curr_freq_pid_limit = 160 + (v >> 1);
 
     Inc_PID_Q32_Set_DeltaLimit(&llc_curr_freq_pid, llc_curr_freq_pid_limit, -llc_curr_freq_pid_limit);
 
     uint32_t value       = setting_volt * SCALE_LLC_VOLT_TO_ADC_VALUE;
     llc_volt_pid.iTarget = value;
-    // llc_volt_pid.iFmax   = llc_curr_oc_limit_adc_value_small;
 }
 
 float get_llc_volt_from_adc_value()
@@ -343,28 +320,20 @@ bool is_power_source_launched()
     return stage == 2;
 }
 
-#define COUNTOF(a)            (sizeof(a) / sizeof(*(a)))
-#define USART2_TX_BUFFER_SIZE (8)
-#define USART2_RX_BUFFER_SIZE (20)
-uint8_t usart2_tx_buffer[USART2_TX_BUFFER_SIZE];
-uint8_t usart2_rx_buffer[USART2_RX_BUFFER_SIZE];
-volatile uint8_t usart2_tx_counter = 0x00;
-volatile uint8_t usart2_rx_counter = 0x00;
-uint8_t usart2_tx_buffer_size      = USART2_TX_BUFFER_SIZE;
-uint8_t usart2_rx_buffer_size      = USART2_RX_BUFFER_SIZE;
-bool usart2_rx_idle_flag           = false;
+void target_set_poll()
+{
+    if (llc_volt_target_changed) {
+        // 如果LLC目标电压改变，更新PID目标
+        set_llc_volt_target_to_adc_value_q32(llc_volt_target);
+        llc_volt_target_changed = false; // 重置标志位
+    }
+}
 
-#define USART1_TX_BUFFER_SIZE (USART2_TX_BUFFER_SIZE)
-#define USART1_RX_BUFFER_SIZE (USART2_RX_BUFFER_SIZE)
-uint8_t usart1_tx_buffer[USART1_TX_BUFFER_SIZE];
-uint8_t usart1_rx_buffer[USART1_RX_BUFFER_SIZE];
-volatile uint8_t usart1_tx_counter = 0x00;
-volatile uint8_t usart1_rx_counter = 0x00;
-uint8_t usart1_tx_buffer_size      = USART1_TX_BUFFER_SIZE;
-uint8_t usart1_rx_buffer_size      = USART1_RX_BUFFER_SIZE;
-bool usart1_rx_idle_flag           = false;
-
-#define TICK_COUNT_VALUE (SysTick->VAL)
+void llc_target_set(float value)
+{
+    llc_volt_target         = value;
+    llc_volt_target_changed = true;
+}
 /* add user code end 0 */
 
 /**
@@ -432,7 +401,7 @@ int main(void)
     ULOG_INFO("AT32F421 WK Demo Start");
 
     // 关闭所有PWM输出，避免暂态
-    disable_all_output();
+    llc_output_disable();
     // 启动定时器
     tmr_counter_enable(TMR15, TRUE);
     tmr_counter_enable(TMR1, TRUE);
@@ -456,8 +425,7 @@ int main(void)
     // 初始化PID控制器
     user_pid_init();
     // 设置过流保护阈值
-    LLC_OC_THRESHOLD       = llc_curr_to_adc_value(LLC_INPUT_CURRENT_UPPER_LIMIT);
-    LLC_Devta_OC_THRESHOLD = llc_curr_to_adc_value(LLC_INPUT_CURRENT_OC_LIMIT);
+    LLC_OC_THRESHOLD = llc_curr_to_adc_value(LLC_INPUT_CURRENT_UPPER_LIMIT);
     // 初始LLC频率为最高频率
     llc_set_pwm_frequency(LLC_FREQUENCY_UPPER_LIMIT);
     // 初始LLC占空比
@@ -466,10 +434,6 @@ int main(void)
     buck_set_tmr_channel_value(0);
     // 设置完LLC的频率后再使能LLC的驱动PWM输出，消除暂态
     tmr_output_enable(TMR1, TRUE);
-    llc_curr_oc_limit_adc_value_small = llc_curr_to_adc_value(0.6f);
-    llc_curr_oc_limit_adc_value_small = llc_curr_oc_limit_adc_value_small << PID_SHIFT;
-    llc_curr_oc_limit_adc_value_upper = llc_curr_to_adc_value(LLC_INPUT_CURRENT_OC_LIMIT);
-    llc_curr_oc_limit_adc_value_upper = llc_curr_oc_limit_adc_value_upper << PID_SHIFT;
     // 设置LLC目标电压
     set_llc_volt_target_to_adc_value_q32(llc_volt_target);
     // 设置阶段为1，表示初始化完成
@@ -477,18 +441,8 @@ int main(void)
     // set_llc_volt_target_to_adc_value_q32(150);
     // set_llc_volt_target_to_adc_value_q32(30);
     // power_source_launch();
-    // 串口相关：数据位个数9位(包含奇偶校验位)，奇校验，1位停止位，9600波特率
-    usart_interrupt_enable(USART1, USART_RDBF_INT, TRUE);
-    usart_interrupt_enable(USART1, USART_TDBE_INT, FALSE);
-    usart_interrupt_enable(USART1, USART_ERR_INT, TRUE);
-    usart_interrupt_enable(USART1, USART_PERR_INT, TRUE);
-    usart_interrupt_enable(USART1, USART_IDLE_INT, TRUE);
+    communication_init();
 
-    usart_interrupt_enable(USART2, USART_RDBF_INT, TRUE);
-    usart_interrupt_enable(USART2, USART_TDBE_INT, FALSE);
-    usart_interrupt_enable(USART2, USART_ERR_INT, TRUE);
-    usart_interrupt_enable(USART2, USART_PERR_INT, TRUE);
-    usart_interrupt_enable(USART2, USART_IDLE_INT, TRUE);
     uint16_t ms_rec = 0;
 
     // wk_delay_ms(5000);
@@ -499,8 +453,6 @@ int main(void)
 
     while (1) {
         /* add user code begin 3 */
-        // 发送数据到JScope,12字节
-        // SEGGER_RTT_Write(1, &rtt_data, sizeof(rtt_data));
         if (TICK_COUNT_VALUE - ms_rec > 1000 * 6) {
             ms_rec                          = TICK_COUNT_VALUE;
             votlage_debug[ADC_IIN_RANK_IDX] = (filtered_adc[ADC_IIN_RANK_IDX] - adc_buffer_init[ADC_IIN_RANK_IDX]) * adc_to_target_scale[ADC_IIN_RANK_IDX];
@@ -518,97 +470,18 @@ int main(void)
                       llc_curr_freq_pid.iF >> PID_SHIFT_14,
                       120000000.0 / (llc_curr_freq_pid.iF >> PID_SHIFT_14));
         }
+        target_set_poll();
 
-        if (llc_volt_target_changed) {
-            // 如果LLC目标电压改变，更新PID目标
-            set_llc_volt_target_to_adc_value_q32(llc_volt_target);
-            llc_volt_target_changed = false; // 重置标志位
-        }
-
-        // 处理串口数据
-        do {
-            if (!usart2_rx_idle_flag) {
-                break;
-            } else {
-                usart2_rx_idle_flag = false;
-            }
-
-            int rx_bytes_num  = usart2_rx_counter;
-            usart2_rx_counter = 0;
-
-            if (rx_bytes_num < 4) {
-                break;
-            }
-
-            uint16_t crc_res = CRC16_CCITT_FALSE(usart2_rx_buffer, rx_bytes_num);
-            if (crc_res != 0) {
-                break;
-            }
-
-            power_wdg_cnt = 0;
-            uint8_t func  = usart2_rx_buffer[0];
-            uint8_t value = usart2_rx_buffer[1];
-            switch (func) {
-                case 0x20:
-                    if (value > 220) {
-                        value = 220;
-                    } else if (value < 10) {
-                        value = 10;
-                    }
-                    llc_volt_target         = value;
-                    llc_volt_target_changed = true;
-                    break;
-                case 0x80:
-                    if (value == 0xAA) {
-                        power_source_launch();
-                    } else if (
-                        value == 0xBB) {
-                        power_source_shutdown();
-                    }
-                    break;
-                default:
-                    break;
-            }
-
-            float llc_volt             = get_llc_volt_from_adc_value();
-            float llc_input_curr       = get_llc_input_curr_from_adc_value();
-            int16_t llc_volt_u16       = llc_volt * 100;
-            int16_t llc_input_curr_u16 = llc_input_curr * 100;
-            int idx                    = 0;
-
-            usart2_tx_buffer[idx++] = 0x80;
-            usart2_tx_buffer[idx++] = is_power_source_launched() ? 0xAA : 0xBB;
-            usart2_tx_buffer[idx++] = llc_volt_u16 >> 8;
-            usart2_tx_buffer[idx++] = llc_volt_u16 & 0xFF;
-            usart2_tx_buffer[idx++] = llc_input_curr_u16 >> 8;
-            usart2_tx_buffer[idx++] = llc_input_curr_u16 & 0xFF;
-            crc_res                 = CRC16_CCITT_FALSE(usart2_tx_buffer, idx);
-            usart2_tx_buffer[idx++] = crc_res & 0xFF;
-            usart2_tx_buffer[idx++] = crc_res >> 8;
-
-            usart2_tx_counter = 0;
-            usart_interrupt_enable(USART2, USART_TDBE_INT, TRUE);
-
-            memcpy(usart1_tx_buffer, usart2_tx_buffer, sizeof(usart1_tx_buffer));
-            usart1_tx_counter = 0;
-            usart_interrupt_enable(USART1, USART_TDBE_INT, TRUE);
-        } while (0);
+        communication_poll();
 
         // wk_delay_ms(1);
-
         // 5秒后软件复位
         // wk_delay_ms(5*1000);
         // __NVIC_SystemReset();
-
         /* add user code end 3 */
     }
 }
-void reset_pid(pInc_PID_Q32_t self)
-{
-    self->iError     = 0;
-    self->iPrevError = 0;
-    self->iLastError = 0;
-}
+
 /* add user code begin 4 */
 
 void adc_dma_handler()
@@ -640,7 +513,7 @@ void adc_dma_handler()
     if ((adc_buffer[ADC_V_LLC_RANK_IDX] > LLC_OV_THRESHOLD) ||
         (adc_buffer[ADC_VO_TOTAL_RANK_IDX] > BUCK_OV_THRESHOLD)) {
         // LLC输出过压或Buck过压，禁用所有输出
-        disable_all_output();
+        llc_output_disable();
         power_source_shutdown();
         protect_type = 2; // 设置保护类型为输出过压保护
         stage        = 0;
@@ -651,7 +524,7 @@ void adc_dma_handler()
         if (oc_cnt > 150) {
             // 10ms
             // LLC输入过流保护
-            disable_all_output();
+            llc_output_disable();
             protect_type = 1; // 设置保护类型为输入过流保护
             power_source_shutdown();
         }
@@ -660,7 +533,6 @@ void adc_dma_handler()
     }
 
     // 更新PID采样值
-    // 缩放见@user_pid_init
     llc_volt_pid.iSampling      = filtered_adc[ADC_V_LLC_RANK_IDX];
     llc_curr_freq_pid.iSampling = filtered_adc[ADC_IIN_RANK_IDX];
 
@@ -672,40 +544,15 @@ void adc_dma_handler()
             // 初始化阶段
             break;
         case 1: {
-            // Inc_PID_Q32_Set_DeltaLimit(&llc_volt_pid, 500, -500);
-
-            // llc_volt_pid.iFmax = llc_curr_oc_limit_adc_value_small; // 放大
             // 使能输出，但是为最低电流
             llc_output_enable();
-            // llc_curr_freq_pid.iTarget = 3259 + 0;
             interrupt_cnt = 0;
             stage         = 2;
             pid_stage     = 0;
             protect_type  = 0;
-            {
-                reset_pid(&llc_volt_pid);
-                reset_pid(&llc_curr_freq_pid);
-
-                uint32_t llc_curr_oc_limit_adc_value    = llc_curr_to_adc_value(LLC_INPUT_CURRENT_OC_LIMIT);
-                uint32_t llc_curr_lower_limit_adc_value = llc_curr_to_adc_value(-0.05f);
-                uint32_t llc_curr_zero_limit_adc_value  = llc_curr_to_adc_value(0);
-                llc_volt_pid.iFmax                      = llc_curr_oc_limit_adc_value << PID_SHIFT; // 放大
-                llc_volt_pid.iFmin                      = llc_curr_lower_limit_adc_value << PID_SHIFT;
-                llc_volt_pid.iF                         = llc_curr_zero_limit_adc_value << PID_SHIFT;
-                llc_volt_pid.P                          = 20;
-                llc_volt_pid.I                          = 200;
-                llc_volt_pid.D                          = 10;
-
-                llc_curr_freq_pid.iFmax = (LLC_PWM_PERIOD_UPPER_LIMIT + 1) << PID_SHIFT_14; // 1200放大
-                llc_curr_freq_pid.iFmin = 20 << PID_SHIFT_14;                               // 放大
-                llc_curr_freq_pid.iF    = llc_curr_freq_pid.iFmin;
-                // 初始为最大频率最小占空比
-                llc_curr_freq_pid.P = 50 * 1;
-                llc_curr_freq_pid.I = 600 * 1;
-                llc_curr_freq_pid.D = 1;
-            }
-
-            // volt_iF = llc_volt_pid.iF;
+            Inc_PID_Q32_Reset(&llc_volt_pid);
+            Inc_PID_Q32_Reset(&llc_curr_freq_pid);
+            user_pid_param_set();
         } break;
         case 2:
             // 正常运行阶段，频率PID控制
@@ -726,14 +573,14 @@ void adc_dma_handler()
 
             // @Apply PID
             // 将频率PID的输出目标频率的对应PERIOD寄存器值作为LLC PWM定时器的PERIOD寄存器值，默认为50%占空比
-            if (iF >= (LLC_PWM_PERIOD_LOWER_LIMIT << PID_SHIFT_14)) {
+            if (iF > (LLC_PWM_PERIOD_LOWER_LIMIT << PID_SHIFT_14)) {
                 // 大于，频率低于最大频率
-                tmr_period_value = (iF >> PID_SHIFT_14) - 1;
+                tmr_period_value = (iF >> PID_SHIFT_14);
                 llc_set_tmr_period(tmr_period_value);
             } else {
                 // (300-0)  -> (50%-0%) -> (150-0)
                 tmr_period_value_set(TMR1, LLC_PWM_PERIOD_LOWER_LIMIT);
-                tmr_channel_value = ((iF) >> (PID_SHIFT_14 + 1)) + 1;
+                tmr_channel_value = ((iF) >> (PID_SHIFT_14 + 1));
                 if (interrupt_cnt & 0x01) {
                     tmr_channel_value += ((iF & (1UL << ((PID_SHIFT_14 + 1) - 1))) ? 1 : 0);
                 }
@@ -743,9 +590,6 @@ void adc_dma_handler()
         case 4:
             // 准备停止阶段
             llc_output_disable();
-
-            tmr_period_value_set(TMR1, LLC_PWM_PERIOD_LOWER_LIMIT);
-            tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, 30);
             stage = 0;
         default:
             break;
@@ -789,204 +633,4 @@ void DMA1_Channel1_IRQHandler(void)
     /* add user code end DMA1_Channel1_IRQ 1 */
 }
 
-/**
- * @brief  this function handles usart1 handler.
- * @param  none
- * @retval none
- */
-void USART1_IRQHandler(void)
-{
-    if (usart_interrupt_flag_get(USART1, USART_RDBF_FLAG) != RESET) {
-        if (usart1_rx_counter < usart1_rx_buffer_size) {
-            /* read one byte from the receive data register */
-            usart1_rx_buffer[usart1_rx_counter++] = usart_data_receive(USART1);
-        } else {
-            volatile uint8_t ch = usart_data_receive(USART1);
-        }
-        usart_flag_clear(USART1, USART_RDBF_FLAG);
-    }
-
-    if (usart_interrupt_flag_get(USART1, USART_TDBE_FLAG) != RESET) {
-        /* write one byte to the transmit data register */
-        usart_data_transmit(USART1, usart1_tx_buffer[usart1_tx_counter++]);
-
-        if (usart1_tx_counter == usart1_tx_buffer_size) {
-            /* disable the usart1 transmit interrupt */
-            usart_interrupt_enable(USART1, USART_TDBE_INT, FALSE);
-        }
-    }
-
-    /* 处理帧错误中断 */
-    if (usart_interrupt_flag_get(USART1, USART_FERR_FLAG) != RESET) {
-        /* 清除帧错误标志 */
-        usart_flag_clear(USART1, USART_FERR_FLAG);
-        /* 可以在这里添加帧错误处理代码 */
-    }
-
-    /* 处理噪声错误中断 */
-    if (usart_interrupt_flag_get(USART1, USART_NERR_FLAG) != RESET) {
-        /* 清除噪声错误标志 */
-        usart_flag_clear(USART1, USART_NERR_FLAG);
-        /* 可以在这里添加噪声错误处理代码 */
-    }
-
-    /* 处理奇偶校验错误中断 */
-    if (usart_interrupt_flag_get(USART1, USART_PERR_FLAG) != RESET) {
-        volatile uint8_t ch = usart_data_receive(USART1);
-        /* 清除奇偶校验错误标志 */
-        usart_flag_clear(USART1, USART_PERR_FLAG);
-        /* 可以在这里添加奇偶校验错误处理代码 */
-    }
-
-    /* 处理接收器溢出错误中断 */
-    if (usart_interrupt_flag_get(USART1, USART_ROERR_FLAG) != RESET) {
-        /* 清除接收器溢出错误标志 */
-        usart_flag_clear(USART1, USART_ROERR_FLAG);
-        /* 可以在这里添加接收器溢出错误处理代码 */
-    }
-
-    /* 处理空闲帧中断 */
-    if (usart_interrupt_flag_get(USART1, USART_IDLEF_FLAG) != RESET) {
-        usart1_rx_idle_flag = true;
-        /* 清除空闲帧标志 */
-        usart_flag_clear(USART1, USART_IDLEF_FLAG);
-        /* 可以在这里添加空闲帧处理代码 */
-    }
-
-    /* 处理发送完成中断 */
-    if (usart_interrupt_flag_get(USART1, USART_TDC_FLAG) != RESET) {
-        /* 清除发送完成标志 */
-        usart_flag_clear(USART1, USART_TDC_FLAG);
-        /* 可以在这里添加发送完成处理代码 */
-    }
-
-    /* 处理断帧中断 */
-    if (usart_interrupt_flag_get(USART1, USART_BFF_FLAG) != RESET) {
-        /* 清除断帧标志 */
-        usart_flag_clear(USART1, USART_BFF_FLAG);
-        /* 可以在这里添加断帧处理代码 */
-    }
-
-    /* 处理CTS变化中断 */
-    if (usart_interrupt_flag_get(USART1, USART_CTSCF_FLAG) != RESET) {
-        /* 清除CTS变化标志 */
-        usart_flag_clear(USART1, USART_CTSCF_FLAG);
-        /* 可以在这里添加CTS变化处理代码 */
-    }
-}
-/**
- * @brief  this function handles usart2 handler.
- * @param  none
- * @retval none
- */
-void USART2_IRQHandler(void)
-{
-    if (usart_interrupt_flag_get(USART2, USART_RDBF_FLAG) != RESET) {
-        if (usart2_rx_counter < usart2_rx_buffer_size) {
-            /* read one byte from the receive data register */
-            usart2_rx_buffer[usart2_rx_counter++] = usart_data_receive(USART2);
-        } else {
-            volatile uint8_t ch = usart_data_receive(USART2);
-        }
-        usart_flag_clear(USART2, USART_RDBF_FLAG);
-    }
-
-    if (usart_interrupt_flag_get(USART2, USART_TDBE_FLAG) != RESET) {
-        /* write one byte to the transmit data register */
-        usart_data_transmit(USART2, usart2_tx_buffer[usart2_tx_counter++]);
-
-        if (usart2_tx_counter == usart2_tx_buffer_size) {
-            /* disable the usart2 transmit interrupt */
-            usart_interrupt_enable(USART2, USART_TDBE_INT, FALSE);
-        }
-    }
-
-    /* 处理帧错误中断 */
-    if (usart_interrupt_flag_get(USART2, USART_FERR_FLAG) != RESET) {
-        /* 清除帧错误标志 */
-        usart_flag_clear(USART2, USART_FERR_FLAG);
-        /* 可以在这里添加帧错误处理代码 */
-    }
-
-    /* 处理噪声错误中断 */
-    if (usart_interrupt_flag_get(USART2, USART_NERR_FLAG) != RESET) {
-        /* 清除噪声错误标志 */
-        usart_flag_clear(USART2, USART_NERR_FLAG);
-        /* 可以在这里添加噪声错误处理代码 */
-    }
-
-    /* 处理奇偶校验错误中断 */
-    if (usart_interrupt_flag_get(USART2, USART_PERR_FLAG) != RESET) {
-        volatile uint8_t ch = usart_data_receive(USART2);
-        /* 清除奇偶校验错误标志 */
-        usart_flag_clear(USART2, USART_PERR_FLAG);
-        /* 可以在这里添加奇偶校验错误处理代码 */
-    }
-
-    /* 处理接收器溢出错误中断 */
-    if (usart_interrupt_flag_get(USART2, USART_ROERR_FLAG) != RESET) {
-        /* 清除接收器溢出错误标志 */
-        usart_flag_clear(USART2, USART_ROERR_FLAG);
-        /* 可以在这里添加接收器溢出错误处理代码 */
-    }
-
-    /* 处理空闲帧中断 */
-    if (usart_interrupt_flag_get(USART2, USART_IDLEF_FLAG) != RESET) {
-        usart2_rx_idle_flag = true;
-        /* 清除空闲帧标志 */
-        usart_flag_clear(USART2, USART_IDLEF_FLAG);
-        /* 可以在这里添加空闲帧处理代码 */
-    }
-
-    /* 处理发送完成中断 */
-    if (usart_interrupt_flag_get(USART2, USART_TDC_FLAG) != RESET) {
-        /* 清除发送完成标志 */
-        usart_flag_clear(USART2, USART_TDC_FLAG);
-        /* 可以在这里添加发送完成处理代码 */
-    }
-
-    /* 处理断帧中断 */
-    if (usart_interrupt_flag_get(USART2, USART_BFF_FLAG) != RESET) {
-        /* 清除断帧标志 */
-        usart_flag_clear(USART2, USART_BFF_FLAG);
-        /* 可以在这里添加断帧处理代码 */
-    }
-
-    /* 处理CTS变化中断 */
-    if (usart_interrupt_flag_get(USART2, USART_CTSCF_FLAG) != RESET) {
-        /* 清除CTS变化标志 */
-        usart_flag_clear(USART2, USART_CTSCF_FLAG);
-        /* 可以在这里添加CTS变化处理代码 */
-    }
-}
-
-// 内联汇编实现
-static inline void udiv_mod(uint32_t dividend, uint32_t divisor, uint32_t *quotient, uint32_t *remainder)
-{
-    __asm volatile(
-        "udiv %0, %2, %3\n\t"    // 商
-        "mls %1, %0, %3, %2\n\t" // 余数 = dividend - quotient * divisor
-        : "=r"(*quotient), "=r"(*remainder)
-        : "r"(dividend), "r"(divisor)
-        : "cc");
-}
-
-void calculate_divmod(int dividend, int divisor, int *quot, int *rem)
-{
-    div_t result = div(dividend, divisor);
-    *quot        = result.quot;
-    *rem         = result.rem;
-}
-
-void scope_init()
-{
-    SEGGER_RTT_ConfigUpBuffer(1, "JScope_u2u2u2u2u2u2", buf, 2048, SEGGER_RTT_MODE_NO_BLOCK_SKIP); // 初始化RTT模块
-
-    /**
-     * uint16_t rtt_data[8]={0};
-     * ...
-     * * // 发送数据到JScope,16字节
-     * SEGGER_RTT_Write(1, &rtt_data, 16);
-     */
-}
 /* add user code end 4 */

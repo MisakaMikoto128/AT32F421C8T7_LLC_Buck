@@ -9,7 +9,16 @@
             "pid_fp32.h": "c",
             "type_traits": "c",
             "xtr1common": "c",
-            "math.h": "c"
+            "math.h": "c",
+            "communication.h": "c",
+            "stdint.h": "c",
+            "wk_pwc.h": "c",
+            "wk_crc.h": "c",
+            "wk_adc.h": "c",
+            "at32f421_wk_config.h": "c",
+            "wk_dma.h": "c",
+            "wk_usart.h": "c",
+            "ccommon.h": "c"
         }
     },
     "extensions": {}
