@@ -212,6 +212,8 @@ uint32_t llc_curr_to_adc_value(float curr)
     return (uint32_t)(curr * SCALE_LLC_CURR_TO_ADC_VALUE + adc_buffer_init[ADC_IIN_RANK_IDX]);
 }
 
+uint32_t llc_launch_curr_adc_value    = 0;
+
 void user_pid_init()
 {
     // Init all fields as zero.
@@ -222,19 +224,21 @@ void user_pid_init()
     uint32_t llc_curr_lower_limit_adc_value = llc_curr_to_adc_value(-0.05f);
     uint32_t llc_curr_zero_limit_adc_value  = llc_curr_to_adc_value(0);
     llc_volt_pid.iFmax                      = llc_curr_oc_limit_adc_value << PID_SHIFT; // 放大
-    llc_volt_pid.iFmin                      = llc_curr_lower_limit_adc_value << PID_SHIFT;
+    llc_volt_pid.iFmin                      = -llc_volt_pid.iFmax;
     llc_volt_pid.iF                         = llc_curr_zero_limit_adc_value << PID_SHIFT;
     llc_volt_pid.P                          = 20;
     llc_volt_pid.I                          = 200;
     llc_volt_pid.D                          = 10;
 
     llc_curr_freq_pid.iFmax = t_max << PID_SHIFT_14; // 1200放大
-    llc_curr_freq_pid.iFmin = t_min << PID_SHIFT_14;                               // 放大
+    llc_curr_freq_pid.iFmin = t_min << PID_SHIFT_14; // 放大
     llc_curr_freq_pid.iF    = llc_curr_freq_pid.iFmin;
     // 初始为最大频率最小占空比
     llc_curr_freq_pid.P = 50 * 1;
     llc_curr_freq_pid.I = 600 * 1;
     llc_curr_freq_pid.D = 1;
+
+    llc_launch_curr_adc_value = llc_curr_to_adc_value(LLC_INPUT_CURRENT_OC_LIMIT);
 }
 
 void llc_output_enable()
@@ -277,9 +281,9 @@ uint8_t buf[2048]; // 定义全局变量
 void scope_init();
 
 int stage                    = 0;
-int protect_type             = 0;     // 0:无保护，1:输入过流保护，2:输出过压保护
-float llc_volt_target        = 200.0f; // LLC目标电压，单位V
-bool llc_volt_target_changed = false; // LLC目标电压是否改变
+int protect_type             = 0;      // 0:无保护，1:输入过流保护，2:输出过压保护
+float llc_volt_target        = 20.0f; // LLC目标电压，单位V
+bool llc_volt_target_changed = false;  // LLC目标电压是否改变
 int stage_debug              = 0;
 uint32_t interrupt_cnt       = 0;
 uint32_t oc_cnt              = 0;
@@ -295,15 +299,14 @@ void set_llc_volt_target_to_adc_value_q32(float target_llc_volt)
     if (setting_volt > 220) {
         setting_volt = 220;
     }
-    int32_t v   = 220 - setting_volt;
-    v           = v < 0 ? 0 : v;
-    int32_t tmp = 160 + v;
+
+    
+    // int32_t tmp = 1200;
 
     // Inc_PID_Q32_Set_DeltaLimit(&llc_curr_freq_pid, tmp, -tmp);
 
     uint32_t value       = setting_volt * SCALE_LLC_VOLT_TO_ADC_VALUE;
     llc_volt_pid.iTarget = value;
-    // llc_volt_pid.iFmax   = llc_curr_oc_limit_adc_value_small;
 }
 
 float get_llc_volt_from_adc_value()
@@ -610,7 +613,7 @@ void adc_dma_handler()
     static int result                  = 0;
     static uint32_t tmr_channel_value  = 0;
     static uint32_t tmr_period_value   = 0;
-    static uint32_t idx   = 0;
+    static uint32_t idx                = 0;
     static int32_t iF                  = 0;
     static int pid_stage               = 0;
     static int32_t delta_curr          = 0;
@@ -627,7 +630,7 @@ void adc_dma_handler()
     interrupt_cnt++;
     power_wdg_cnt++;
 
-    if (power_wdg_cnt > 10*1000 * 100UL) {
+    if (power_wdg_cnt > 10 * 1000 * 100UL) {
         power_wdg_cnt = 0;
         power_source_shutdown();
     }
@@ -688,24 +691,26 @@ void adc_dma_handler()
             pid_stage     = 0;
             protect_type  = 0;
             {
+                reset_pid(&llc_volt_pid);
+                reset_pid(&llc_curr_freq_pid);
 
                 uint32_t llc_curr_oc_limit_adc_value    = llc_curr_to_adc_value(LLC_INPUT_CURRENT_OC_LIMIT);
                 uint32_t llc_curr_lower_limit_adc_value = llc_curr_to_adc_value(-0.05f);
                 uint32_t llc_curr_zero_limit_adc_value  = llc_curr_to_adc_value(0);
                 llc_volt_pid.iFmax                      = llc_curr_oc_limit_adc_value << PID_SHIFT; // 放大
-                llc_volt_pid.iFmin                      = llc_curr_lower_limit_adc_value << PID_SHIFT;
+                llc_volt_pid.iFmin                      = -llc_volt_pid.iFmax;
                 llc_volt_pid.iF                         = llc_curr_zero_limit_adc_value << PID_SHIFT;
                 llc_volt_pid.P                          = 20;
                 llc_volt_pid.I                          = 200;
                 llc_volt_pid.D                          = 10;
 
-                llc_curr_freq_pid.iFmax = (LLC_PWM_PERIOD_UPPER_LIMIT + 1) << PID_SHIFT_14; // 1200放大
-                llc_curr_freq_pid.iFmin = 20 << PID_SHIFT_14;                               // 放大
+                llc_curr_freq_pid.iFmax = t_max << PID_SHIFT_14; // 1200放大
+                llc_curr_freq_pid.iFmin = t_min << PID_SHIFT_14; // 放大
                 llc_curr_freq_pid.iF    = llc_curr_freq_pid.iFmin;
                 // 初始为最大频率最小占空比
                 llc_curr_freq_pid.P = 50 * 1;
                 llc_curr_freq_pid.I = 600 * 1;
-                llc_curr_freq_pid.D = 1;
+                llc_curr_freq_pid.D = 10;
             }
 
             // volt_iF = llc_volt_pid.iF;
@@ -719,8 +724,8 @@ void adc_dma_handler()
             // 当前电流低于目标电流则会增大PERIOD寄存器值从而降低频率，使得频率靠近谐振点从而提高电流
             Inc_PID_Q32_Update_AddDelta(&llc_curr_freq_pid);
             // 超调抑制方法0：啥也不做，PID参数抑制超调，大概率是电压环的P参数过大。
-            iF = llc_curr_freq_pid.iF;
-            idx = iF >> PID_SHIFT_14;
+            iF               = llc_curr_freq_pid.iF;
+            idx              = iF >> PID_SHIFT_14;
             tmr_period_value = h_func[idx];
             if (interrupt_cnt & 0x01) {
                 tmr_period_value += h_func_res[idx];
