@@ -125,7 +125,7 @@ float adc_to_target_scale[ADC_RANK_NUM] = {
 // LLC PWM频率上限
 #define LLC_FREQUENCY_UPPER_LIMIT 400000UL
 // LLC PWM频率下限
-#define LLC_FREQUENCY_LOWER_LIMIT 200000UL // 116000UL
+#define LLC_FREQUENCY_LOWER_LIMIT 150000UL // 116000UL
 // LLC PWM周期寄存器上限
 #define LLC_PWM_PERIOD_UPPER_LIMIT ((TMR1_CLK_FREQ / LLC_FREQUENCY_LOWER_LIMIT) - 1) // 1000-1
 // LLC PWM周期寄存器下限
@@ -468,6 +468,7 @@ int main(void)
     // 设置LLC目标电压
     set_llc_volt_target_to_adc_value_q32(llc_volt_target);
     // 设置阶段为1，表示初始化完成
+    // set_llc_volt_target_to_adc_value_q32(200);
     // power_source_launch();
     // 串口相关：数据位个数9位(包含奇偶校验位)，奇校验，1位停止位，9600波特率
     usart_interrupt_enable(USART1, USART_RDBF_INT, TRUE);
@@ -685,6 +686,8 @@ void adc_dma_handler()
             pid_stage     = 0;
             protect_type  = 0;
             {
+                reset_pid(&llc_volt_pid);
+                reset_pid(&llc_curr_freq_pid);
 
                 uint32_t llc_curr_oc_limit_adc_value    = llc_curr_to_adc_value(LLC_INPUT_CURRENT_OC_LIMIT);
                 uint32_t llc_curr_lower_limit_adc_value = llc_curr_to_adc_value(-0.05f);
