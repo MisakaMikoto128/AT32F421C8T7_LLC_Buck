@@ -151,7 +151,10 @@ uint32_t LLC_OV_THRESHOLD = LLC_OV_ADC_VALUE(220);
 #define BUCK_OV_ADC_VALUE(volt) ((volt) * SCALE_BUCK_VOLT_TO_ADC_VALUE)
 uint32_t BUCK_OV_THRESHOLD = BUCK_OV_ADC_VALUE(320);
 // LLC输入过流保护阈值，由于是霍尔元件，需要稍后初始化
-uint32_t LLC_OC_THRESHOLD = 2.5f * SCALE_LLC_CURR_TO_ADC_VALUE;
+uint32_t LLC_OCP_THRESHOLD              = 2.5f * SCALE_LLC_CURR_TO_ADC_VALUE;
+uint32_t LLC_OC_MAX                     = 2.5f * SCALE_LLC_CURR_TO_ADC_VALUE;
+uint32_t LLC_CURR_ZERO_LIMIT_ADC_VALUE  = 2.5f * SCALE_LLC_CURR_TO_ADC_VALUE;
+uint32_t LLC_CURR_LOWER_LIMIT_ADC_VALUE = 2.5f * SCALE_LLC_CURR_TO_ADC_VALUE;
 
 // PID控制器实例
 Inc_PID_Q32_t llc_volt_pid;
@@ -214,15 +217,12 @@ uint32_t llc_curr_to_adc_value(float curr)
 
 void user_pid_param_set()
 {
-    uint32_t llc_curr_oc_limit_adc_value    = llc_curr_to_adc_value(LLC_INPUT_CURRENT_OC_LIMIT);
-    uint32_t llc_curr_lower_limit_adc_value = llc_curr_to_adc_value(-0.05f);
-    uint32_t llc_curr_zero_limit_adc_value  = llc_curr_to_adc_value(0);
-    llc_volt_pid.iFmax                      = llc_curr_oc_limit_adc_value << PID_SHIFT; // 放大
-    llc_volt_pid.iFmin                      = llc_curr_lower_limit_adc_value << PID_SHIFT;
-    llc_volt_pid.iF                         = llc_curr_zero_limit_adc_value << PID_SHIFT;
-    llc_volt_pid.P                          = 20;
-    llc_volt_pid.I                          = 200;
-    llc_volt_pid.D                          = 10;
+    llc_volt_pid.iFmax = LLC_OC_MAX << PID_SHIFT; // 放大
+    llc_volt_pid.iFmin = LLC_CURR_LOWER_LIMIT_ADC_VALUE << PID_SHIFT;
+    llc_volt_pid.iF    = LLC_CURR_ZERO_LIMIT_ADC_VALUE << PID_SHIFT;
+    llc_volt_pid.P     = 20;
+    llc_volt_pid.I     = 200;
+    llc_volt_pid.D     = 10;
 
     llc_curr_freq_pid.iFmax = (LLC_PWM_PERIOD_UPPER_LIMIT + 1) << PID_SHIFT_14; // 1200放大
     llc_curr_freq_pid.iFmin = 20 << PID_SHIFT_14;                               // 放大
@@ -276,6 +276,7 @@ void set_llc_volt_target_to_adc_value_q32(float target_llc_volt)
     if (setting_volt > 220) {
         setting_volt = 220;
     }
+
     int32_t v               = 220 - setting_volt;
     v                       = v < 0 ? 0 : v;
     llc_curr_freq_pid_limit = 160 + (v >> 1);
@@ -422,10 +423,13 @@ int main(void)
     __enable_irq();
 
     ULOG_INFO("ADC_IIN_RANK_IDX %u", adc_buffer_init[ADC_IIN_RANK_IDX]);
+    // 设置过流保护阈值
+    LLC_OCP_THRESHOLD              = llc_curr_to_adc_value(LLC_INPUT_CURRENT_UPPER_LIMIT);
+    LLC_OC_MAX                     = llc_curr_to_adc_value(LLC_INPUT_CURRENT_OC_LIMIT);
+    LLC_CURR_ZERO_LIMIT_ADC_VALUE  = llc_curr_to_adc_value(0);
+    LLC_CURR_LOWER_LIMIT_ADC_VALUE = llc_curr_to_adc_value(-0.05f);
     // 初始化PID控制器
     user_pid_init();
-    // 设置过流保护阈值
-    LLC_OC_THRESHOLD = llc_curr_to_adc_value(LLC_INPUT_CURRENT_UPPER_LIMIT);
     // 初始LLC频率为最高频率
     llc_set_pwm_frequency(LLC_FREQUENCY_UPPER_LIMIT);
     // 初始LLC占空比
@@ -503,30 +507,27 @@ void adc_dma_handler()
     tmr_output_enable(TMR15, TRUE);
 
     interrupt_cnt++;
-    power_wdg_cnt++;
 
+    power_wdg_cnt++;
     if (power_wdg_cnt > 5000 * 100UL) {
         power_wdg_cnt = 0;
         power_source_shutdown();
     }
 
-    if ((adc_buffer[ADC_V_LLC_RANK_IDX] > LLC_OV_THRESHOLD) ||
-        (adc_buffer[ADC_VO_TOTAL_RANK_IDX] > BUCK_OV_THRESHOLD)) {
+    if (adc_buffer[ADC_V_LLC_RANK_IDX] > LLC_OV_THRESHOLD) {
         // LLC输出过压或Buck过压，禁用所有输出
         llc_output_disable();
         power_source_shutdown();
-        protect_type = 2; // 设置保护类型为输出过压保护
-        stage        = 0;
+        protect_type = 1; // 设置保护类型为输出过压保护
     }
 
-    if (adc_buffer[ADC_IIN_RANK_IDX] > LLC_OC_THRESHOLD) {
+    if (adc_buffer[ADC_IIN_RANK_IDX] > LLC_OCP_THRESHOLD) {
         oc_cnt++; // 10us
         if (oc_cnt > 150) {
-            // 10ms
             // LLC输入过流保护
             llc_output_disable();
-            protect_type = 1; // 设置保护类型为输入过流保护
             power_source_shutdown();
+            protect_type = 2; // 设置保护类型为输入过流保护
         }
     } else {
         oc_cnt = 0;
@@ -545,7 +546,6 @@ void adc_dma_handler()
             break;
         case 1: {
             // 使能输出，但是为最低电流
-            llc_output_enable();
             interrupt_cnt = 0;
             stage         = 2;
             pid_stage     = 0;
@@ -553,6 +553,7 @@ void adc_dma_handler()
             Inc_PID_Q32_Reset(&llc_volt_pid);
             Inc_PID_Q32_Reset(&llc_curr_freq_pid);
             user_pid_param_set();
+            llc_output_enable();
         } break;
         case 2:
             // 正常运行阶段，频率PID控制
