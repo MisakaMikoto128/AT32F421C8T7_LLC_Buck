@@ -610,6 +610,7 @@ void adc_dma_handler()
     static int result                  = 0;
     static uint32_t tmr_channel_value  = 0;
     static uint32_t tmr_period_value   = 0;
+    static uint32_t idx   = 0;
     static int32_t iF                  = 0;
     static int pid_stage               = 0;
     static int32_t delta_curr          = 0;
@@ -719,8 +720,11 @@ void adc_dma_handler()
             Inc_PID_Q32_Update_AddDelta(&llc_curr_freq_pid);
             // 超调抑制方法0：啥也不做，PID参数抑制超调，大概率是电压环的P参数过大。
             iF = llc_curr_freq_pid.iF;
-            tmr_period_value = h_func[iF >> PID_SHIFT_14];
-
+            idx = iF >> PID_SHIFT_14;
+            tmr_period_value = h_func[idx];
+            if (interrupt_cnt & 0x01) {
+                tmr_period_value += h_func_res[idx];
+            }
             // @Apply PID
             // 将频率PID的输出目标频率的对应PERIOD寄存器值作为LLC PWM定时器的PERIOD寄存器值，默认为50%占空比
             if (tmr_period_value >= LLC_PWM_PERIOD_LOWER_LIMIT) {
