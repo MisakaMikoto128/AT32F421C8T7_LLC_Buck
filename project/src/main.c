@@ -44,6 +44,8 @@
 #include "crc.h"
 #include "ccommon.h"
 #include "wk_adc.h"
+#include "x_t_int.h"
+
 /* add user code end private includes */
 
 /* private typedef -----------------------------------------------------------*/
@@ -226,8 +228,8 @@ void user_pid_init()
     llc_volt_pid.I                          = 200;
     llc_volt_pid.D                          = 10;
 
-    llc_curr_freq_pid.iFmax = (LLC_PWM_PERIOD_UPPER_LIMIT + 1) << PID_SHIFT_14; // 1200放大
-    llc_curr_freq_pid.iFmin = 20 << PID_SHIFT_14;                               // 放大
+    llc_curr_freq_pid.iFmax = t_max << PID_SHIFT_14; // 1200放大
+    llc_curr_freq_pid.iFmin = t_min << PID_SHIFT_14;                               // 放大
     llc_curr_freq_pid.iF    = llc_curr_freq_pid.iFmin;
     // 初始为最大频率最小占空比
     llc_curr_freq_pid.P = 50 * 1;
@@ -276,7 +278,7 @@ void scope_init();
 
 int stage                    = 0;
 int protect_type             = 0;     // 0:无保护，1:输入过流保护，2:输出过压保护
-float llc_volt_target        = 10.0f; // LLC目标电压，单位V
+float llc_volt_target        = 200.0f; // LLC目标电压，单位V
 bool llc_volt_target_changed = false; // LLC目标电压是否改变
 int stage_debug              = 0;
 uint32_t interrupt_cnt       = 0;
@@ -297,7 +299,7 @@ void set_llc_volt_target_to_adc_value_q32(float target_llc_volt)
     v           = v < 0 ? 0 : v;
     int32_t tmp = 160 + v;
 
-    Inc_PID_Q32_Set_DeltaLimit(&llc_curr_freq_pid, tmp, -tmp);
+    // Inc_PID_Q32_Set_DeltaLimit(&llc_curr_freq_pid, tmp, -tmp);
 
     uint32_t value       = setting_volt * SCALE_LLC_VOLT_TO_ADC_VALUE;
     llc_volt_pid.iTarget = value;
@@ -468,7 +470,7 @@ int main(void)
     // 设置LLC目标电压
     set_llc_volt_target_to_adc_value_q32(llc_volt_target);
     // 设置阶段为1，表示初始化完成
-    // power_source_launch();
+    power_source_launch();
     // 串口相关：数据位个数9位(包含奇偶校验位)，奇校验，1位停止位，9600波特率
     usart_interrupt_enable(USART1, USART_RDBF_INT, TRUE);
     usart_interrupt_enable(USART1, USART_TDBE_INT, FALSE);
@@ -624,7 +626,7 @@ void adc_dma_handler()
     interrupt_cnt++;
     power_wdg_cnt++;
 
-    if (power_wdg_cnt > 5000 * 100UL) {
+    if (power_wdg_cnt > 10*1000 * 100UL) {
         power_wdg_cnt = 0;
         power_source_shutdown();
     }
@@ -717,20 +719,17 @@ void adc_dma_handler()
             Inc_PID_Q32_Update_AddDelta(&llc_curr_freq_pid);
             // 超调抑制方法0：啥也不做，PID参数抑制超调，大概率是电压环的P参数过大。
             iF = llc_curr_freq_pid.iF;
+            tmr_period_value = h_func[iF >> PID_SHIFT_14];
 
             // @Apply PID
             // 将频率PID的输出目标频率的对应PERIOD寄存器值作为LLC PWM定时器的PERIOD寄存器值，默认为50%占空比
-            if (iF >= (LLC_PWM_PERIOD_LOWER_LIMIT << PID_SHIFT_14)) {
+            if (tmr_period_value >= LLC_PWM_PERIOD_LOWER_LIMIT) {
                 // 大于，频率低于最大频率
-                tmr_period_value = (iF >> PID_SHIFT_14) - 1;
                 llc_set_tmr_period(tmr_period_value);
             } else {
                 // (300-0)  -> (50%-0%) -> (150-0)
                 tmr_period_value_set(TMR1, LLC_PWM_PERIOD_LOWER_LIMIT);
-                tmr_channel_value = ((iF) >> (PID_SHIFT_14 + 1)) + 1;
-                if (interrupt_cnt & 0x01) {
-                    tmr_channel_value += ((iF & (1UL << ((PID_SHIFT_14 + 1) - 1))) ? 1 : 0);
-                }
+                tmr_channel_value = (tmr_period_value >> 1);
                 tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, tmr_channel_value);
             }
             break;
