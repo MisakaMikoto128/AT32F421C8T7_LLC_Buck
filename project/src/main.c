@@ -421,7 +421,7 @@ int main(void)
     while (1) {
         /* add user code begin 3 */
         llc_curr_freq_pid.iFmax = period << PID_SHIFT_14; // 1200放大
-        wk_delay_ms(80);
+        wk_delay_ms(200);
         Debug_Printf("[%8d,%8d,%8d,%8d]\r\n", period, 
         filtered_adc[ADC_IIN_RANK_IDX], 
         adc_buffer_init[ADC_IIN_RANK_IDX],
