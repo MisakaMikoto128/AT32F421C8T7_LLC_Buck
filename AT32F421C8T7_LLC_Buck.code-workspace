@@ -18,7 +18,9 @@
             "at32f421_wk_config.h": "c",
             "wk_dma.h": "c",
             "wk_usart.h": "c",
-            "ccommon.h": "c"
+            "ccommon.h": "c",
+            "bfl_measure.h": "c",
+            "cstdlib": "c"
         }
     },
     "extensions": {}
