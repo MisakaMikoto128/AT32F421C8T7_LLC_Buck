@@ -7,4 +7,4 @@ static const uint8_t h_func_res[] = {
 static const uint32_t t_min = 0UL;
 // (uint32_t)((120000000/200000) * 2.318696883852)
 // (uint32_t)((120000000/180000) * 2.318696883852)
-static const uint32_t t_max = 1045UL;
+static const uint32_t t_max = 1545UL;
