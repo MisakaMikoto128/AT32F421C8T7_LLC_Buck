@@ -127,22 +127,18 @@ float adc_to_target_scale[ADC_RANK_NUM] = {
 #define LLC_FREQUENCY_UPPER_LIMIT 400000UL
 // LLC PWM频率下限
 #define LLC_FREQUENCY_LOWER_LIMIT 150000UL // 116000UL
-
-#define LLC_FREQUENCY_SAFE_LIMIT  250000UL // 116000UL
 // LLC PWM周期寄存器上限
 #define LLC_PWM_PERIOD_UPPER_LIMIT ((TMR1_CLK_FREQ / LLC_FREQUENCY_LOWER_LIMIT) - 1) // 1000-1
 // LLC PWM周期寄存器下限
 #define LLC_PWM_PERIOD_LOWER_LIMIT ((TMR1_CLK_FREQ / LLC_FREQUENCY_UPPER_LIMIT) - 1) // 300-1
-// LLC PWM周期寄存器安全上限
-#define LLC_PWM_PERIOD_SAFE_LIMIT ((TMR1_CLK_FREQ / LLC_FREQUENCY_SAFE_LIMIT) - 1)
 // LLC Duty比较器映射
 // (300-0)  -> (50%-0%) -> (150-0)
 // LLC 输入电流安全上限
-#define LLC_INPUT_CURRENT_UPPER_LIMIT 5.0f // 5A。
+#define LLC_INPUT_CURRENT_UPPER_LIMIT 5.2f // 5A。
 // LLC 输入电流下限
 #define LLC_INPUT_CURRENT_LOWER_LIMIT 0.0f // 0A
 // LLC 输入电流限制
-#define LLC_INPUT_CURRENT_OC_LIMIT (4.8f) // 4A。
+#define LLC_INPUT_CURRENT_OC_LIMIT (4.9f) // 4A。
 
 // LLC输出过压保护
 #define LLC_OV_ADC_VALUE(volt) ((volt) * SCALE_LLC_VOLT_TO_ADC_VALUE)
@@ -279,7 +275,7 @@ void set_llc_volt_target_to_adc_value_q32(float target_llc_volt)
     v                       = v < 0 ? 0 : v;
     llc_curr_freq_pid_limit = 160 + (v >> 1);
 
-    Inc_PID_Q32_Set_DeltaLimit(&llc_curr_freq_pid, llc_curr_freq_pid_limit, -llc_curr_freq_pid_limit);
+    // Inc_PID_Q32_Set_DeltaLimit(&llc_curr_freq_pid, llc_curr_freq_pid_limit, -llc_curr_freq_pid_limit);
 
     uint32_t value       = setting_volt * SCALE_LLC_VOLT_TO_ADC_VALUE;
     llc_volt_pid.iTarget = value;
@@ -426,7 +422,7 @@ int main(void)
     LLC_OC_MAX                     = llc_curr_to_adc_value(LLC_INPUT_CURRENT_OC_LIMIT);
     LLC_CURR_ZERO_LIMIT_ADC_VALUE  = llc_curr_to_adc_value(0);
     LLC_CURR_LOWER_LIMIT_ADC_VALUE = llc_curr_to_adc_value(-0.05f);
-    LLC_CURR_DEBUG_ADC_VALUE       = llc_curr_to_adc_value(4.6f);
+    LLC_CURR_DEBUG_ADC_VALUE       = llc_curr_to_adc_value(LLC_INPUT_CURRENT_OC_LIMIT);
     // 初始化PID控制器
     user_pid_init();
     // 初始LLC频率为最高频率
@@ -442,10 +438,11 @@ int main(void)
     set_llc_volt_target_to_adc_value_q32(llc_volt_target);
 #elif _Debug == 1
     // 测试用，设置LLC目标电压为0V
-    set_llc_volt_target_to_adc_value_q32(50);
-    //set_llc_volt_target_to_adc_value_q32(150);
-    //set_llc_volt_target_to_adc_value_q32(30);
-    // 设置阶段为1，表示初始化完成
+    // set_llc_volt_target_to_adc_value_q32(20);
+    // set_llc_volt_target_to_adc_value_q32(150);
+    // set_llc_volt_target_to_adc_value_q32(200);
+    // set_llc_volt_target_to_adc_value_q32(100);
+    //  设置阶段为1，表示初始化完成
     power_source_launch();
 #endif
     communication_init();
@@ -520,7 +517,7 @@ void adc_dma_handler()
 
     if (adc_buffer[ADC_IIN_RANK_IDX] > LLC_OCP_THRESHOLD) {
         oc_cnt++; // 10us
-        if (oc_cnt > 150) {
+        if (oc_cnt > 90) {
             // LLC输入过流保护
             llc_output_disable();
             power_source_shutdown();
@@ -558,6 +555,7 @@ void adc_dma_handler()
             Inc_PID_Q32_Update_AddDelta(&llc_volt_pid);
             // 将电压PID的输出目标电流的对应ADC值作为频率PID的目标
             llc_curr_freq_pid.iTarget = llc_volt_pid.iF >> PID_SHIFT;
+            // llc_curr_freq_pid.iTarget = LLC_CURR_DEBUG_ADC_VALUE;
 
             // if (abs(llc_volt_pid.iError) > (5 * SCALE_LLC_VOLT_TO_ADC_VALUE)) {
             //     Inc_PID_Q32_Set_DeltaLimit(&llc_curr_freq_pid, llc_curr_freq_pid_limit, -llc_curr_freq_pid_limit);
@@ -570,7 +568,8 @@ void adc_dma_handler()
             // 超调抑制方法0：啥也不做，PID参数抑制超调，大概率是电压环的P参数过大。
             iF = llc_curr_freq_pid.iF;
 
-            if (iF > (LLC_PWM_PERIOD_SAFE_LIMIT << PID_SHIFT_14)) {
+            // 频率越低，PID最大增量越小
+            if (iF > (((TMR1_CLK_FREQ / 240000UL) - 1) << PID_SHIFT_14)) {
                 Inc_PID_Q32_Set_DeltaLimit(&llc_curr_freq_pid, INT32_MAX, INT32_MIN);
             } else {
                 Inc_PID_Q32_Set_DeltaLimit(&llc_curr_freq_pid, llc_curr_freq_pid_limit, -llc_curr_freq_pid_limit);
