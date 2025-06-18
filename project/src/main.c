@@ -152,6 +152,7 @@ uint32_t LLC_OCP_THRESHOLD              = 2.5f * SCALE_LLC_CURR_TO_ADC_VALUE;
 uint32_t LLC_OC_MAX                     = 2.5f * SCALE_LLC_CURR_TO_ADC_VALUE;
 uint32_t LLC_CURR_ZERO_LIMIT_ADC_VALUE  = 2.5f * SCALE_LLC_CURR_TO_ADC_VALUE;
 uint32_t LLC_CURR_LOWER_LIMIT_ADC_VALUE = 2.5f * SCALE_LLC_CURR_TO_ADC_VALUE;
+uint32_t LLC_CURR_DEBUG_ADC_VALUE       = 2.5f * SCALE_LLC_CURR_TO_ADC_VALUE;
 
 // PID控制器实例
 Inc_PID_Q32_t llc_volt_pid;
@@ -425,6 +426,7 @@ int main(void)
     LLC_OC_MAX                     = llc_curr_to_adc_value(LLC_INPUT_CURRENT_OC_LIMIT);
     LLC_CURR_ZERO_LIMIT_ADC_VALUE  = llc_curr_to_adc_value(0);
     LLC_CURR_LOWER_LIMIT_ADC_VALUE = llc_curr_to_adc_value(-0.05f);
+    LLC_CURR_DEBUG_ADC_VALUE       = llc_curr_to_adc_value(4.6f);
     // 初始化PID控制器
     user_pid_init();
     // 初始LLC频率为最高频率
