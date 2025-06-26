@@ -44,6 +44,36 @@ int Inc_PID_Q32_Update_AddDelta(pInc_PID_Q32_t self);
 int Inc_PID_Q32_Update_SubDelta(pInc_PID_Q32_t self);
 void Inc_PID_Q32_Set_DeltaLimit(pInc_PID_Q32_t self, int32_t maxDelta, int32_t minDelta);
 int Inc_PID_Q32_Reset(pInc_PID_Q32_t self);
+
+
+// 位置式PID控制器
+typedef struct
+{
+    int32_t iTarget;   // 目标值
+    int32_t iSampling; // 测量值
+    int32_t P;         // 比例
+    int32_t I;         // 积分
+    int32_t D;         // 微分
+
+    int32_t iError;     // 当前误差
+    int32_t iPrevError; // 前1次误差值
+    int32_t iLastError; // 前2次误差值
+
+    int64_t iIntegral;  // 积分值
+    int32_t iDifference; // 微分值
+
+    int32_t iF;    // 传输给控制器的新控制值
+    int32_t iFmax; // 传输给控制器的最大控制值
+    int32_t iFmin; // 传输给控制器的最小控制值
+
+    int32_t maxIntegral; // 积分上限
+    int32_t minIntegral; // 积分下限
+} Pos_PID_Q32_t, *pPos_PID_Q32_t;
+
+void Pos_PID_Q32_Init(pPos_PID_Q32_t self);
+int Pos_PID_Q32_Update_AddDelta(pPos_PID_Q32_t self);
+int Pos_PID_Q32_Update_SubDelta(pPos_PID_Q32_t self);
+void Pos_PID_Q32_Set_IntegralLimit(pPos_PID_Q32_t self, int32_t maxIntegral, int32_t minIntegral);
 #ifdef __cplusplus
 }
 #endif

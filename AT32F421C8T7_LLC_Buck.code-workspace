@@ -20,7 +20,8 @@
             "wk_usart.h": "c",
             "ccommon.h": "c",
             "bfl_measure.h": "c",
-            "cstdlib": "c"
+            "cstdlib": "c",
+            "pid_q32.h": "c"
         }
     },
     "extensions": {}
